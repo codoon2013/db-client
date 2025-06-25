@@ -32,9 +32,9 @@
       "output": "dist"
     },
     "files": [
-      "**/*",
-      "!node_modules/**/*"
+      "**/*"
     ],
+    "asar": false,
     "mac": {
       "category": "public.app-category.utilities",
       "icon": "assets/icon.icns"

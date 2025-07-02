@@ -213,6 +213,7 @@ body {
     flex: 1;
     overflow: auto;
     padding: 20px;
+    background: rgba(251, 249, 249, 0.95);
 }
 
 /* 视图切换 */
@@ -536,8 +537,9 @@ body {
     border-radius: 12px;
     padding: 24px;
     box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-    max-width: 900px;
     margin: 0 auto;
+    height: 100%;
+    width: 100%;
 }
 .db-conn-section, .db-query-section {
     margin-bottom: 32px;
@@ -601,3 +603,6 @@ body {
 .db-query-result tr:nth-child(even) {
     background: #f7f7fa;
 } 
+
+
+

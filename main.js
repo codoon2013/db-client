@@ -324,4 +324,4 @@ ipcMain.handle('open-csv-dialog', async () => {
   if (canceled || !filePaths || !filePaths[0]) return { canceled: true };
   const content = fs.readFileSync(filePaths[0], 'utf-8');
   return { canceled: false, content };
-}); 
+c}); 

@@ -53,7 +53,7 @@ function createTray() {
   const icon = nativeImage.createFromPath(iconPath);
   
   tray = new Tray(icon);
-  tray.setToolTip('Mac Desktop System');
+  tray.setToolTip('mysql-client');
 
   // 创建托盘菜单
   const contextMenu = Menu.buildFromTemplate([

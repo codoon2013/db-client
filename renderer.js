@@ -23,7 +23,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // 初始化应用
 function initializeApp() {
-    console.log('Mac Desktop System 初始化中...');
+    console.log('mysql-client 初始化中...');
     
     // 设置当前时间
     updateTime();

@@ -1,19 +1,37 @@
 {
-  "name": "mac-desktop-system",
+  "name": "mysql-client",
   "version": "1.0.0",
-  "description": "A modern mysql client built with Electron",
+  "description": "A modern MySQL client built with Electron",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
     "build": "electron-builder",
-    "dist": "electron-builder --publish=never"
+    "build:mac": "electron-builder --mac",
+    "build:mac-unsigned": "electron-builder --mac --publish=never",
+    "build:mac-signed": "electron-builder --mac --publish=never --sign",
+    "build:win": "electron-builder --win",
+    "build:win-unsigned": "electron-builder --win --publish=never",
+    "build:linux": "electron-builder --linux",
+    "build:linux-unsigned": "electron-builder --linux --publish=never",
+    "dist": "electron-builder --publish=never",
+    "dist:mac": "electron-builder --mac --publish=never",
+    "dist:win": "electron-builder --win --publish=never",
+    "dist:linux": "electron-builder --linux --publish=never",
+    "pack": "electron-builder --dir",
+    "pack:mac": "electron-builder --mac --dir",
+    "pack:win": "electron-builder --win --dir",
+    "pack:linux": "electron-builder --linux --dir"
   },
   "keywords": [
     "electron",
+    "mysql",
+    "database",
+    "client",
     "desktop",
     "mac",
-    "system"
+    "windows",
+    "linux"
   ],
   "author": "Your Name",
   "license": "MIT",
@@ -26,18 +44,75 @@
     "mysql2": "^3.14.1"
   },
   "build": {
-    "appId": "com.yourcompany.macdesktop",
-    "productName": "mysql-client",
+    "appId": "com.yourcompany.mysqlclient",
+    "productName": "MySQL Client",
     "directories": {
       "output": "dist"
     },
     "files": [
-      "**/*"
+      "**/*",
+      "!node_modules/**/*",
+      "!dist/**/*",
+      "!.git/**/*",
+      "!*.md",
+      "!run-app.sh",
+      "!scripts/**/*"
     ],
     "asar": false,
     "mac": {
-      "category": "public.app-category.utilities",
-      "icon": "assets/icon.icns"
+      "category": "public.app-category.developer-tools",
+      "icon": "assets/icon.icns",
+      "target": [
+        {
+          "target": "zip",
+          "arch": ["x64", "arm64"]
+        }
+      ],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "assets/entitlements.mac.plist",
+      "entitlementsInherit": "assets/entitlements.mac.plist"
+    },
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "linux": {
+      "icon": "assets/icon.png",
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": ["x64"]
+        },
+        {
+          "target": "deb",
+          "arch": ["x64"]
+        }
+      ],
+      "category": "Development"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "dmg": {
+      "title": "MySQL Client",
+      "icon": "assets/icon.icns",
+      "window": {
+        "width": 540,
+        "height": 380
+      }
     }
   }
 }

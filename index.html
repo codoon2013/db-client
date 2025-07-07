@@ -209,28 +209,112 @@
                 <!-- 数据库视图 -->
                 <div class="view" id="database-view">
                     <div class="database-container">
-                        <div class="db-conn-section">
-                            <h3>连接MySQL数据库</h3>
-                            <div class="db-conn-fields">
-                                <input type="text" id="dbHost" placeholder="主机 (host)" value="rm-bp1836rs430pk3y63co.mysql.rds.aliyuncs.com">
-                                <input type="text" id="dbPort" placeholder="端口 (port)" value="3306">
-                                <input type="text" id="dbUser" placeholder="用户名 (user)" value="readonly">
-                                <input type="password" id="dbPassword" placeholder="密码 (password)" value="wmQ7a8t1rXsWP1ML">
-                                <input type="text" id="dbName" placeholder="数据库名 (database)" value="club_mini">
-                                <button class="btn btn-primary" id="dbConnectBtn">连接</button>
-                                <span id="dbConnStatus"></span>
+                        <!-- 连接管理区域 -->
+                        <div class="db-connections-section">
+                            <div class="connections-header">
+                                <h3><i class="fas fa-database"></i> 数据库连接管理</h3>
+                                <button class="btn btn-primary" id="newConnectionBtn">
+                                    <i class="fas fa-plus"></i> 新建连接
+                                </button>
+                            </div>
+                            
+                            <!-- 连接列表 -->
+                            <div class="connections-list" id="connectionsList">
+                                <!-- 连接项目将在这里动态生成 -->
+                            </div>
+                            
+                            <!-- 当前连接状态 -->
+                            <div class="current-connection-status" id="currentConnectionStatus">
+                                <div class="status-indicator">
+                                    <i class="fas fa-circle status-dot"></i>
+                                    <span>未连接</span>
+                                </div>
                             </div>
                         </div>
+
+                        <!-- SQL查询区域 -->
                         <div class="db-query-section">
                             <h3>SQL查询</h3>
-                            <textarea id="dbQueryInput" rows="3" placeholder="输入SQL语句"></textarea>
-                            <div class="db-query-actions">
-                                <button class="btn btn-primary" id="dbQueryBtn">查询</button>
-                                <button class="btn btn-secondary" id="dbExportBtn">导出结果</button>
-                                <button class="btn btn-secondary" id="dbImportBtn">导入数据</button>
-                                <input type="text" id="dbImportTable" placeholder="表名（默认change_club_user_score）" value="change_club_user_score" style="width:220px; margin-left:12px; border:1px solid #eee; border-radius:6px; padding:6px 12px; font-size:14px;">
+                            <div class="query-toolbar">
+                                <div class="query-history">
+                                    <button class="btn btn-secondary" id="showHistoryBtn">
+                                        <i class="fas fa-history"></i> 查询历史
+                                    </button>
+                                </div>
+                                <div class="query-actions">
+                                    <button class="btn btn-primary" id="dbQueryBtn">
+                                        <i class="fas fa-play"></i> 执行查询
+                                    </button>
+                                    <button class="btn btn-secondary" id="dbExportBtn">
+                                        <i class="fas fa-download"></i> 导出结果
+                                    </button>
+                                    <button class="btn btn-secondary" id="dbImportBtn">
+                                        <i class="fas fa-upload"></i> 导入数据
+                                    </button>
+                                </div>
+                            </div>
+                            <textarea id="dbQueryInput" rows="6" placeholder="输入SQL语句，例如: SELECT * FROM users LIMIT 10"></textarea>
+                            <div class="import-config" id="importConfig" style="display: none;">
+                                <input type="text" id="dbImportTable" placeholder="目标表名" value="users">
+                                <button class="btn btn-warning" id="confirmImportBtn">确认导入</button>
                             </div>
                             <div class="db-query-result" id="dbQueryResult"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 新建连接模态对话框 -->
+                <div class="modal-overlay" id="connectionModal">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3><i class="fas fa-database"></i> <span id="modalTitle">新建数据库连接</span></h3>
+                            <button class="modal-close" id="closeConnectionModal">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        <div class="modal-body">
+                            <form id="connectionForm">
+                                <input type="hidden" id="modalConnectionId" value="">
+                                <div class="form-group">
+                                    <label for="modalConnName">连接名称 *</label>
+                                    <input type="text" id="modalConnName" placeholder="给连接起个名字" required>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="modalDbHost">主机地址 *</label>
+                                        <input type="text" id="modalDbHost" placeholder="localhost" value="localhost" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="modalDbPort">端口 *</label>
+                                        <input type="number" id="modalDbPort" placeholder="3306" value="3306" min="1" max="65535" required>
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="modalDbUser">用户名 *</label>
+                                        <input type="text" id="modalDbUser" placeholder="root" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="modalDbPassword">密码 *</label>
+                                        <input type="password" id="modalDbPassword" placeholder="输入密码" required>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label for="modalDbName">数据库名 *</label>
+                                    <input type="text" id="modalDbName" placeholder="数据库名称" required>
+                                </div>
+                                <div class="form-actions">
+                                    <button type="button" class="btn btn-secondary" id="testConnectionModalBtn">
+                                        <i class="fas fa-vial"></i> 测试连接
+                                    </button>
+                                    <button type="button" class="btn btn-primary" id="saveConnectionModalBtn">
+                                        <i class="fas fa-save"></i> 保存连接
+                                    </button>
+                                    <button type="button" class="btn btn-danger" id="cancelConnectionModalBtn">
+                                        <i class="fas fa-times"></i> 取消
+                                    </button>
+                                </div>
+                            </form>
                         </div>
                     </div>
                 </div>

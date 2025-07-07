@@ -3,6 +3,9 @@ const { ipcRenderer } = require('electron');
 // 全局变量
 let currentView = 'dashboard';
 let settings = {};
+let savedConnections = []; // 保存的数据库连接配置
+let currentConnectionId = null; // 当前活跃的连接ID
+let queryHistory = []; // 查询历史记录
 
 // DOM 元素
 const navItems = document.querySelectorAll('.nav-item');
@@ -365,118 +368,792 @@ style.textContent = `
 `;
 document.head.appendChild(style);
 
+// 设置数据库事件
 function setupDatabaseEvents() {
-    const dbConnectBtn = document.getElementById('dbConnectBtn');
-    const dbConnStatus = document.getElementById('dbConnStatus');
+    // 加载保存的连接配置
+    loadSavedConnections();
+    
+    // 新建连接按钮 - 打开模态对话框
+    const newConnectionBtn = document.getElementById('newConnectionBtn');
+    if (newConnectionBtn) {
+        newConnectionBtn.addEventListener('click', () => {
+            openConnectionModal();
+        });
+    }
+    
+    // 模态对话框相关事件
+    setupModalEvents();
+    
+    // 查询按钮
     const dbQueryBtn = document.getElementById('dbQueryBtn');
-    const dbExportBtn = document.getElementById('dbExportBtn');
-    const dbImportBtn = document.getElementById('dbImportBtn');
-    const dbHost = document.getElementById('dbHost');
-    const dbPort = document.getElementById('dbPort');
-    const dbUser = document.getElementById('dbUser');
-    const dbPassword = document.getElementById('dbPassword');
-    const dbName = document.getElementById('dbName');
-    const dbQueryInput = document.getElementById('dbQueryInput');
-    const dbQueryResult = document.getElementById('dbQueryResult');
-
-    let lastQuery = '';
-
-    if (dbConnectBtn) {
-        dbConnectBtn.addEventListener('click', async () => {
-            dbConnStatus.textContent = '连接中...';
-            dbConnStatus.style.color = '#888';
-            const config = {
-                host: dbHost.value,
-                port: dbPort.value,
-                user: dbUser.value,
-                password: dbPassword.value,
-                database: dbName.value
-            };
-            const res = await window.electronAPI.invoke('mysql-connect', config);
-            if (res.success) {
-                dbConnStatus.textContent = '连接成功';
-                dbConnStatus.style.color = '#28a745';
-            } else {
-                dbConnStatus.textContent = '连接失败: ' + res.error;
-                dbConnStatus.style.color = '#ff4757';
-            }
-        });
-    }
-
     if (dbQueryBtn) {
-        dbQueryBtn.addEventListener('click', async () => {
-            const sql = dbQueryInput.value.trim();
-            if (!sql) {
-                alert('请输入SQL语句');
-                return;
-            }
-            dbQueryResult.textContent = '查询中...';
-            const res = await window.electronAPI.invoke('mysql-query', sql);
-            if (res.success) {
-                lastQuery = sql;
-                dbQueryResult.innerHTML = renderTable(res.rows);
-            } else {
-                dbQueryResult.textContent = '查询失败: ' + res.error;
-            }
-        });
+        dbQueryBtn.addEventListener('click', executeQuery);
     }
-
+    
+    // 导出按钮
+    const dbExportBtn = document.getElementById('dbExportBtn');
     if (dbExportBtn) {
-        dbExportBtn.addEventListener('click', async () => {
-            if (!lastQuery) {
-                dbQueryResult.textContent = '请先执行一次查询';
-                return;
-            }
-            dbQueryResult.textContent = '导出中...';
-            const res = await window.electronAPI.invoke('mysql-export', lastQuery);
-            if (res.success) {
-                dbQueryResult.textContent = '导出成功: ' + res.filePath;
-            } else {
-                dbQueryResult.textContent = '导出失败: ' + res.error;
-            }
+        dbExportBtn.addEventListener('click', exportData);
+    }
+    
+    // 导入按钮
+    const dbImportBtn = document.getElementById('dbImportBtn');
+    if (dbImportBtn) {
+        dbImportBtn.addEventListener('click', () => {
+            const importConfig = document.getElementById('importConfig');
+            importConfig.style.display = importConfig.style.display === 'none' ? 'flex' : 'none';
         });
     }
-
-    if (dbImportBtn) {
-        dbImportBtn.addEventListener('click', async () => {
-            // 1. 选择CSV文件
-            const res = await window.electronAPI.invoke('open-csv-dialog');
-            if (res.canceled || !res.content) return;
-            // 2. 获取输入框表名
-            const tableInput = document.getElementById('dbImportTable');
-            let table = tableInput ? tableInput.value.trim() : '';
-            if (!table) {
-                alert('请输入表名');
-                return;
-            }
-            // 3. 发送给主进程导入
-            dbQueryResult.textContent = '导入中...';
-            const importRes = await window.electronAPI.invoke('mysql-import', { table, content: res.content });
-            if (importRes.success) {
-                dbQueryResult.textContent = `导入成功，成功${importRes.successCount}条，失败${importRes.failCount}条`;
-            } else {
-                dbQueryResult.textContent = '导入失败: ' + importRes.error;
-            }
-        });
+    
+    // 确认导入按钮
+    const confirmImportBtn = document.getElementById('confirmImportBtn');
+    if (confirmImportBtn) {
+        confirmImportBtn.addEventListener('click', importData);
+    }
+    
+    // 查询历史按钮
+    const showHistoryBtn = document.getElementById('showHistoryBtn');
+    if (showHistoryBtn) {
+        showHistoryBtn.addEventListener('click', showQueryHistory);
     }
 }
 
-function renderTable(rows) {
-    if (!rows || !rows.length) return '<div>无数据</div>';
-    let html = '<table><thead><tr>';
-    Object.keys(rows[0]).forEach(key => {
-        html += `<th>${key}</th>`;
+// 设置模态对话框事件
+function setupModalEvents() {
+    const modal = document.getElementById('connectionModal');
+    const closeBtn = document.getElementById('closeConnectionModal');
+    const cancelBtn = document.getElementById('cancelConnectionModalBtn');
+    const testBtn = document.getElementById('testConnectionModalBtn');
+    const saveBtn = document.getElementById('saveConnectionModalBtn');
+    
+    // 关闭模态对话框
+    if (closeBtn) {
+        closeBtn.addEventListener('click', closeConnectionModal);
+    }
+    
+    if (cancelBtn) {
+        cancelBtn.addEventListener('click', closeConnectionModal);
+    }
+    
+    // 点击遮罩层关闭
+    if (modal) {
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                closeConnectionModal();
+            }
+        });
+    }
+    
+    // 测试连接
+    if (testBtn) {
+        testBtn.addEventListener('click', testConnectionModal);
+    }
+    
+    // 保存连接
+    if (saveBtn) {
+        saveBtn.addEventListener('click', saveConnectionModal);
+    }
+    
+    // ESC键关闭模态对话框
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && modal && modal.classList.contains('show')) {
+            closeConnectionModal();
+        }
+    });
+}
+
+// 打开连接模态对话框
+function openConnectionModal() {
+    const modal = document.getElementById('connectionModal');
+    if (modal) {
+        clearModalForm();
+        setModalTitle('新建数据库连接');
+        modal.classList.add('show');
+        // 聚焦到第一个输入框
+        setTimeout(() => {
+            document.getElementById('modalConnName').focus();
+        }, 100);
+    }
+}
+
+// 编辑连接
+function editConnection(connectionId) {
+    const connection = savedConnections.find(c => c.id === connectionId);
+    if (!connection) {
+        showMessage('连接配置不存在', 'error');
+        return;
+    }
+    
+    // 如果正在编辑当前连接的配置，给出提示
+    if (connectionId === currentConnectionId) {
+        if (!confirm('您正在编辑当前使用的连接配置。修改后需要重新连接才能生效。是否继续？')) {
+            return;
+        }
+    }
+    
+    const modal = document.getElementById('connectionModal');
+    if (modal) {
+        // 填充表单数据
+        document.getElementById('modalConnectionId').value = connection.id;
+        document.getElementById('modalConnName').value = connection.name || '';
+        document.getElementById('modalDbHost').value = connection.host || '';
+        document.getElementById('modalDbPort').value = connection.port || '3306';
+        document.getElementById('modalDbUser').value = connection.user || '';
+        document.getElementById('modalDbPassword').value = connection.password || '';
+        document.getElementById('modalDbName').value = connection.database || '';
+        
+        setModalTitle('编辑数据库连接');
+        modal.classList.add('show');
+        
+        // 聚焦到第一个输入框
+        setTimeout(() => {
+            document.getElementById('modalConnName').focus();
+        }, 100);
+    }
+}
+
+// 设置模态对话框标题
+function setModalTitle(title) {
+    const titleElement = document.getElementById('modalTitle');
+    if (titleElement) {
+        titleElement.textContent = title;
+    }
+}
+
+// 关闭连接模态对话框
+function closeConnectionModal() {
+    const modal = document.getElementById('connectionModal');
+    if (modal) {
+        modal.classList.remove('show');
+        clearModalForm();
+    }
+}
+
+// 清空模态对话框表单
+function clearModalForm() {
+    document.getElementById('modalConnectionId').value = '';
+    document.getElementById('modalConnName').value = '';
+    document.getElementById('modalDbHost').value = 'localhost';
+    document.getElementById('modalDbPort').value = '3306';
+    document.getElementById('modalDbUser').value = '';
+    document.getElementById('modalDbPassword').value = '';
+    document.getElementById('modalDbName').value = '';
+    
+    // 清除验证状态
+    clearFormValidation();
+}
+
+// 清除表单验证状态
+function clearFormValidation() {
+    const formGroups = document.querySelectorAll('.form-group');
+    formGroups.forEach(group => {
+        group.classList.remove('success', 'error');
+        const errorMsg = group.querySelector('.error-message');
+        const successMsg = group.querySelector('.success-message');
+        if (errorMsg) errorMsg.remove();
+        if (successMsg) successMsg.remove();
+    });
+}
+
+// 测试模态对话框中的连接
+async function testConnectionModal() {
+    const config = getModalConnectionConfig();
+    if (!validateModalConnectionConfig(config)) return;
+    
+    const testBtn = document.getElementById('testConnectionModalBtn');
+    const originalText = testBtn.innerHTML;
+    
+    try {
+        // 显示加载状态
+        testBtn.classList.add('loading');
+        testBtn.innerHTML = '测试中...';
+        
+        const result = await ipcRenderer.invoke('test-connection', config);
+        if (result.success) {
+            showFormSuccess('modalDbHost', '连接测试成功！');
+            showMessage('连接测试成功！', 'success');
+        } else {
+            showFormError('modalDbHost', `连接测试失败: ${result.error}`);
+            showMessage(`连接测试失败: ${result.error}`, 'error');
+        }
+    } catch (error) {
+        showFormError('modalDbHost', `连接测试失败: ${error.message}`);
+        showMessage(`连接测试失败: ${error.message}`, 'error');
+    } finally {
+        // 恢复按钮状态
+        testBtn.classList.remove('loading');
+        testBtn.innerHTML = originalText;
+    }
+}
+
+// 保存模态对话框中的连接
+async function saveConnectionModal() {
+    const config = getModalConnectionConfig();
+    if (!validateModalConnectionConfig(config)) return;
+    
+    const saveBtn = document.getElementById('saveConnectionModalBtn');
+    const originalText = saveBtn.innerHTML;
+    
+    try {
+        // 显示加载状态
+        saveBtn.classList.add('loading');
+        saveBtn.innerHTML = '保存中...';
+        
+        const result = await ipcRenderer.invoke('save-db-connection', config);
+        if (result.success) {
+            const isEdit = config.id ? '编辑' : '新建';
+            showMessage(`连接配置${isEdit}成功！`, 'success');
+            
+            // 如果是编辑当前连接，提示用户重新连接
+            if (config.id && config.id === currentConnectionId) {
+                showMessage('连接配置已更新，建议重新连接以确保配置生效', 'info');
+            }
+            
+            await loadSavedConnections();
+            closeConnectionModal();
+        } else {
+            showMessage('保存失败', 'error');
+        }
+    } catch (error) {
+        showMessage(`保存失败: ${error.message}`, 'error');
+    } finally {
+        // 恢复按钮状态
+        saveBtn.classList.remove('loading');
+        saveBtn.innerHTML = originalText;
+    }
+}
+
+// 获取模态对话框中的连接配置
+function getModalConnectionConfig() {
+    return {
+        id: document.getElementById('modalConnectionId').value || null,
+        name: document.getElementById('modalConnName').value,
+        host: document.getElementById('modalDbHost').value,
+        port: parseInt(document.getElementById('modalDbPort').value),
+        user: document.getElementById('modalDbUser').value,
+        password: document.getElementById('modalDbPassword').value,
+        database: document.getElementById('modalDbName').value
+    };
+}
+
+// 验证模态对话框中的连接配置
+function validateModalConnectionConfig(config) {
+    clearFormValidation();
+    let isValid = true;
+    
+    if (!config.name.trim()) {
+        showFormError('modalConnName', '请输入连接名称');
+        isValid = false;
+    }
+    
+    if (!config.host.trim()) {
+        showFormError('modalDbHost', '请输入主机地址');
+        isValid = false;
+    }
+    
+    if (!config.port || config.port < 1 || config.port > 65535) {
+        showFormError('modalDbPort', '请输入有效的端口号');
+        isValid = false;
+    }
+    
+    if (!config.user.trim()) {
+        showFormError('modalDbUser', '请输入用户名');
+        isValid = false;
+    }
+    
+    if (!config.password.trim()) {
+        showFormError('modalDbPassword', '请输入密码');
+        isValid = false;
+    }
+    
+    if (!config.database.trim()) {
+        showFormError('modalDbName', '请输入数据库名');
+        isValid = false;
+    }
+    
+    return isValid;
+}
+
+// 显示表单错误
+function showFormError(fieldId, message) {
+    const field = document.getElementById(fieldId);
+    const formGroup = field.closest('.form-group');
+    
+    formGroup.classList.add('error');
+    formGroup.classList.remove('success');
+    
+    // 移除现有的错误消息
+    const existingError = formGroup.querySelector('.error-message');
+    if (existingError) {
+        existingError.remove();
+    }
+    
+    // 添加新的错误消息
+    const errorMsg = document.createElement('div');
+    errorMsg.className = 'error-message';
+    errorMsg.textContent = message;
+    formGroup.appendChild(errorMsg);
+    
+    // 聚焦到错误字段
+    field.focus();
+}
+
+// 显示表单成功
+function showFormSuccess(fieldId, message) {
+    const field = document.getElementById(fieldId);
+    const formGroup = field.closest('.form-group');
+    
+    formGroup.classList.add('success');
+    formGroup.classList.remove('error');
+    
+    // 移除现有的成功消息
+    const existingSuccess = formGroup.querySelector('.success-message');
+    if (existingSuccess) {
+        existingSuccess.remove();
+    }
+    
+    // 添加新的成功消息
+    const successMsg = document.createElement('div');
+    successMsg.className = 'success-message';
+    successMsg.textContent = message;
+    formGroup.appendChild(successMsg);
+}
+
+// 加载保存的连接配置
+async function loadSavedConnections() {
+    try {
+        savedConnections = await ipcRenderer.invoke('get-db-connections');
+        renderConnectionsList();
+        updateConnectionStatus();
+    } catch (error) {
+        console.error('加载连接配置失败:', error);
+    }
+}
+
+// 渲染连接列表
+function renderConnectionsList() {
+    const connectionsList = document.getElementById('connectionsList');
+    if (!connectionsList) return;
+    
+    connectionsList.innerHTML = '';
+    
+    if (savedConnections.length === 0) {
+        connectionsList.innerHTML = `
+            <div class="no-connections">
+                <p>暂无保存的连接配置</p>
+                <p>点击"新建连接"添加数据库连接</p>
+            </div>
+        `;
+        return;
+    }
+    
+    savedConnections.forEach(connection => {
+        const connectionItem = createConnectionItem(connection);
+        connectionsList.appendChild(connectionItem);
+    });
+}
+
+// 创建连接项目
+function createConnectionItem(connection) {
+    const connectionItem = document.createElement('div');
+    connectionItem.className = 'connection-item';
+    connectionItem.dataset.connectionId = connection.id;
+    
+    const isActive = connection.id === currentConnectionId;
+    if (isActive) {
+        connectionItem.classList.add('active');
+    }
+    
+    connectionItem.innerHTML = `
+        <div class="connection-info">
+            <div class="connection-status ${isActive ? 'connected' : 'disconnected'}"></div>
+            <div class="connection-details">
+                <div class="connection-name">${connection.name || '未命名连接'}</div>
+                <div class="connection-host">${connection.host}:${connection.port}/${connection.database}</div>
+            </div>
+        </div>
+        <div class="connection-actions">
+            ${isActive ? 
+                `<button class="connection-action-btn disconnect" onclick="disconnectFromDatabase('${connection.id}')">断开</button>` :
+                `<button class="connection-action-btn connect" onclick="connectToSavedDatabase('${connection.id}')">连接</button>`
+            }
+            <button class="connection-action-btn edit" onclick="editConnection('${connection.id}')" title="编辑连接">
+                <i class="fas fa-edit"></i>
+            </button>
+            <button class="connection-action-btn delete" onclick="deleteConnection('${connection.id}')" title="删除连接">
+                <i class="fas fa-trash"></i>
+            </button>
+        </div>
+    `;
+    
+    // 单击连接项目切换到该连接
+    connectionItem.addEventListener('click', (e) => {
+        if (!e.target.classList.contains('connection-action-btn') && !e.target.closest('.connection-action-btn')) {
+            // 直接连接，不再加载到表单
+            connectToSavedDatabase(connection.id);
+        }
+    });
+    
+    // 双击连接项目编辑配置
+    connectionItem.addEventListener('dblclick', (e) => {
+        if (!e.target.classList.contains('connection-action-btn') && !e.target.closest('.connection-action-btn')) {
+            editConnection(connection.id);
+        }
+    });
+    
+    return connectionItem;
+}
+
+// 更新连接状态显示
+async function updateConnectionStatus() {
+    const statusElement = document.getElementById('currentConnectionStatus');
+    if (!statusElement) return;
+    
+    try {
+        const status = await ipcRenderer.invoke('get-connection-status');
+        const currentConnection = status.find(s => s.isCurrent);
+        
+        if (currentConnection) {
+            statusElement.innerHTML = `
+                <div class="status-indicator">
+                    <i class="fas fa-circle status-dot connected"></i>
+                    <span>已连接到: ${currentConnection.name}</span>
+                </div>
+            `;
+        } else {
+            statusElement.innerHTML = `
+                <div class="status-indicator">
+                    <i class="fas fa-circle status-dot"></i>
+                    <span>未连接</span>
+                </div>
+            `;
+        }
+    } catch (error) {
+        console.error('获取连接状态失败:', error);
+    }
+}
+
+// 执行查询
+async function executeQuery() {
+    const queryInput = document.getElementById('dbQueryInput');
+    const sql = queryInput.value.trim();
+    
+    if (!sql) {
+        showMessage('请输入SQL语句', 'error');
+        return;
+    }
+    
+    if (!currentConnectionId) {
+        showMessage('请先连接数据库', 'error');
+        return;
+    }
+    
+    const startTime = Date.now();
+    
+    try {
+        const result = await ipcRenderer.invoke('mysql-query', sql);
+        const endTime = Date.now();
+        const executionTime = endTime - startTime;
+        
+        if (result.success) {
+            renderTable(result.rows, executionTime);
+            showMessage(`查询成功，返回 ${result.rows.length} 条记录，耗时 ${executionTime}ms`, 'success');
+            // 保存到查询历史
+            saveQueryHistory(sql, result.rows.length);
+        } else {
+            showMessage(`查询失败: ${result.error}`, 'error');
+        }
+    } catch (error) {
+        showMessage(`查询失败: ${error.message}`, 'error');
+    }
+}
+
+// 渲染查询结果表格
+function renderTable(rows, executionTime = null) {
+    const resultContainer = document.getElementById('dbQueryResult');
+    if (!resultContainer) return;
+    
+    let html = '';
+    
+    // 添加查询统计信息
+    if (executionTime !== null) {
+        html += `
+            <div class="query-stats">
+                <span class="row-count">返回 ${rows ? rows.length : 0} 条记录</span>
+                <span class="execution-time">执行时间: ${executionTime}ms</span>
+            </div>
+        `;
+    }
+    
+    if (!rows || rows.length === 0) {
+        html += '<div class="no-data">查询结果为空</div>';
+        resultContainer.innerHTML = html;
+        return;
+    }
+    
+    // 获取所有列名
+    const columns = Object.keys(rows[0]);
+    
+    // 创建表格HTML
+    html += '<div class="table-container"><table><thead><tr>';
+    
+    // 添加表头
+    columns.forEach(column => {
+        html += `<th>${escapeHtml(column)}</th>`;
     });
     html += '</tr></thead><tbody>';
+    
+    // 添加数据行
     rows.forEach(row => {
         html += '<tr>';
-        Object.values(row).forEach(val => {
-            html += `<td>${val === null ? '' : val}</td>`;
+        columns.forEach(column => {
+            const value = row[column];
+            html += `<td>${formatCellValue(value)}</td>`;
         });
         html += '</tr>';
     });
-    html += '</tbody></table>';
-    return html;
+    
+    html += '</tbody></table></div>';
+    
+    resultContainer.innerHTML = html;
+}
+
+// 格式化单元格值
+function formatCellValue(value) {
+    if (value === null || value === undefined) {
+        return '<span class="null-value">NULL</span>';
+    }
+    
+    if (typeof value === 'boolean') {
+        return value ? 'true' : 'false';
+    }
+    
+    if (typeof value === 'number') {
+        return value.toString();
+    }
+    
+    if (typeof value === 'string') {
+        // 如果是JSON字符串，尝试格式化
+        if (value.startsWith('{') || value.startsWith('[')) {
+            try {
+                const parsed = JSON.parse(value);
+                return `<pre class="json-value">${JSON.stringify(parsed, null, 2)}</pre>`;
+            } catch (e) {
+                // 不是有效的JSON，按普通字符串处理
+            }
+        }
+        
+        // 如果是长文本，截断显示
+        if (value.length > 100) {
+            return `<span title="${escapeHtml(value)}">${escapeHtml(value.substring(0, 100))}...</span>`;
+        }
+        
+        return value;
+    }
+    
+    return String(value);
+}
+
+// HTML转义函数
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// 导出数据
+async function exportData() {
+    const queryInput = document.getElementById('dbQueryInput');
+    const sql = queryInput.value.trim();
+    
+    if (!sql) {
+        showMessage('请输入SQL语句', 'error');
+        return;
+    }
+    
+    if (!currentConnectionId) {
+        showMessage('请先连接数据库', 'error');
+        return;
+    }
+    
+    try {
+        const result = await ipcRenderer.invoke('mysql-export', sql);
+        if (result.success) {
+            showMessage(`数据导出成功: ${result.filePath}`, 'success');
+        } else {
+            showMessage(`导出失败: ${result.error}`, 'error');
+        }
+    } catch (error) {
+        showMessage(`导出失败: ${error.message}`, 'error');
+    }
+}
+
+// 导入数据
+async function importData() {
+    if (!currentConnectionId) {
+        showMessage('请先连接数据库', 'error');
+        return;
+    }
+    
+    const tableName = document.getElementById('dbImportTable').value.trim();
+    if (!tableName) {
+        showMessage('请输入目标表名', 'error');
+        return;
+    }
+    
+    try {
+        const result = await ipcRenderer.invoke('select-csv-file');
+        if (!result.canceled) {
+            const importResult = await ipcRenderer.invoke('mysql-import', {
+                table: tableName,
+                content: result.content
+            });
+            
+            if (importResult.success) {
+                showMessage(`导入成功: ${importResult.successCount} 条成功, ${importResult.failCount} 条失败`, 'success');
+            } else {
+                showMessage(`导入失败: ${importResult.error}`, 'error');
+            }
+        }
+    } catch (error) {
+        showMessage(`导入失败: ${error.message}`, 'error');
+    }
+}
+
+// 显示查询历史
+function showQueryHistory() {
+    const history = getQueryHistory();
+    if (history.length === 0) {
+        showMessage('暂无查询历史', 'info');
+        return;
+    }
+    
+    // 创建历史记录列表
+    const historyList = history.map((item, index) => `
+        <div class="history-item" onclick="loadQueryFromHistory('${escapeHtml(item.sql)}')">
+            <div class="history-sql">${escapeHtml(item.sql.substring(0, 50))}${item.sql.length > 50 ? '...' : ''}</div>
+            <div class="history-meta">
+                <span class="history-time">${formatTime(item.timestamp)}</span>
+                <span class="history-rows">${item.rows} 条记录</span>
+            </div>
+        </div>
+    `).join('');
+    
+    // 显示历史记录对话框
+    showHistoryModal(historyList);
+}
+
+// 获取查询历史
+function getQueryHistory() {
+    const history = localStorage.getItem('queryHistory');
+    return history ? JSON.parse(history) : [];
+}
+
+// 保存查询历史
+function saveQueryHistory(sql, rows) {
+    const history = getQueryHistory();
+    const newItem = {
+        sql: sql,
+        rows: rows,
+        timestamp: Date.now()
+    };
+    
+    // 避免重复保存相同的查询
+    const existingIndex = history.findIndex(item => item.sql === sql);
+    if (existingIndex !== -1) {
+        history.splice(existingIndex, 1);
+    }
+    
+    // 添加到开头
+    history.unshift(newItem);
+    
+    // 只保留最近20条记录
+    if (history.length > 20) {
+        history.splice(20);
+    }
+    
+    localStorage.setItem('queryHistory', JSON.stringify(history));
+}
+
+// 从历史记录加载查询
+function loadQueryFromHistory(sql) {
+    document.getElementById('dbQueryInput').value = sql;
+    closeHistoryModal();
+    showMessage('已加载查询语句', 'success');
+}
+
+// 格式化时间
+function formatTime(timestamp) {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diff = now - date;
+    
+    if (diff < 60000) { // 1分钟内
+        return '刚刚';
+    } else if (diff < 3600000) { // 1小时内
+        return `${Math.floor(diff / 60000)}分钟前`;
+    } else if (diff < 86400000) { // 1天内
+        return `${Math.floor(diff / 3600000)}小时前`;
+    } else {
+        return date.toLocaleDateString('zh-CN');
+    }
+}
+
+// 显示历史记录模态对话框
+function showHistoryModal(content) {
+    // 创建模态对话框
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay show';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-history"></i> 查询历史</h3>
+                <button class="modal-close" onclick="closeHistoryModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="history-list">
+                    ${content}
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // 点击遮罩层关闭
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            closeHistoryModal();
+        }
+    });
+}
+
+// 关闭历史记录模态对话框
+function closeHistoryModal() {
+    const modal = document.querySelector('.modal-overlay');
+    if (modal) {
+        modal.remove();
+    }
+}
+
+// 显示消息
+function showMessage(message, type = 'info') {
+    // 创建消息元素
+    const messageElement = document.createElement('div');
+    messageElement.className = `message message-${type}`;
+    messageElement.textContent = message;
+    
+    // 添加到页面
+    document.body.appendChild(messageElement);
+    
+    // 3秒后自动移除
+    setTimeout(() => {
+        if (messageElement.parentNode) {
+            messageElement.parentNode.removeChild(messageElement);
+        }
+    }, 3000);
 }
 
 // CSV解析函数
@@ -510,4 +1187,57 @@ if (!window.electronAPI) {
     window.electronAPI = {
         invoke: (...args) => require('electron').ipcRenderer.invoke(...args)
     };
+}
+
+// 连接到已保存的数据库
+async function connectToSavedDatabase(connectionId) {
+    const connection = savedConnections.find(c => c.id === connectionId);
+    if (!connection) {
+        showMessage('连接配置不存在', 'error');
+        return;
+    }
+    
+    try {
+        const result = await ipcRenderer.invoke('mysql-connect', connection);
+        if (result.success) {
+            currentConnectionId = result.connectionId;
+            showMessage('数据库连接成功！', 'success');
+            updateConnectionStatus();
+            renderConnectionsList();
+        } else {
+            showMessage(`连接失败: ${result.error}`, 'error');
+        }
+    } catch (error) {
+        showMessage(`连接失败: ${error.message}`, 'error');
+    }
+}
+
+// 断开数据库连接
+async function disconnectFromDatabase(connectionId) {
+    try {
+        await ipcRenderer.invoke('close-all-connections');
+        currentConnectionId = null;
+        showMessage('已断开数据库连接', 'info');
+        updateConnectionStatus();
+        renderConnectionsList();
+    } catch (error) {
+        showMessage(`断开连接失败: ${error.message}`, 'error');
+    }
+}
+
+// 删除连接配置
+async function deleteConnection(connectionId) {
+    if (!confirm('确定要删除这个连接配置吗？')) return;
+    
+    try {
+        const result = await ipcRenderer.invoke('delete-db-connection', connectionId);
+        if (result.success) {
+            showMessage('连接配置删除成功！', 'success');
+            await loadSavedConnections();
+        } else {
+            showMessage('删除失败', 'error');
+        }
+    } catch (error) {
+        showMessage(`删除失败: ${error.message}`, 'error');
+    }
 } 

@@ -9,7 +9,8 @@ const store = new Store();
 
 let mainWindow;
 let tray;
-let dbConnection = null;
+let dbConnections = new Map(); // 存储多个数据库连接
+let currentConnectionId = null; // 当前活跃的连接ID
 
 function createWindow() {
   // 创建浏览器窗口
@@ -129,14 +130,157 @@ ipcMain.handle('open-external', (event, url) => {
   shell.openExternal(url);
 });
 
+// 获取保存的数据库连接配置
+ipcMain.handle('get-db-connections', () => {
+  return store.get('dbConnections', []);
+});
+
+// 保存数据库连接配置
+ipcMain.handle('save-db-connection', (event, connection) => {
+  const connections = store.get('dbConnections', []);
+  if (connection.id) {
+    // 更新现有连接
+    const index = connections.findIndex(c => c.id === connection.id);
+    if (index !== -1) {
+      connections[index] = { ...connections[index], ...connection };
+    }
+  } else {
+    // 新增连接
+    connection.id = Date.now().toString();
+    connection.createdAt = new Date().toISOString();
+    connections.push(connection);
+  }
+  store.set('dbConnections', connections);
+  return { success: true, connection };
+});
+
+// 删除数据库连接配置
+ipcMain.handle('delete-db-connection', (event, connectionId) => {
+  const connections = store.get('dbConnections', []);
+  const filteredConnections = connections.filter(c => c.id !== connectionId);
+  store.set('dbConnections', filteredConnections);
+  
+  // 如果删除的是当前连接，关闭连接
+  if (currentConnectionId === connectionId) {
+    closeConnection(connectionId);
+    currentConnectionId = null;
+  }
+  
+  return { success: true };
+});
+
 // 连接MySQL
 ipcMain.handle('mysql-connect', async (event, config) => {
   try {
-    if (dbConnection) {
-      await dbConnection.end();
+    const connectionId = config.id || Date.now().toString();
+    
+    // 如果已存在连接，先关闭
+    if (dbConnections.has(connectionId)) {
+      await closeConnection(connectionId);
     }
-    dbConnection = await mysql.createConnection(config);
-    return { success: true };
+    
+    // 创建新连接
+    const connection = await mysql.createConnection({
+      host: config.host,
+      port: config.port,
+      user: config.user,
+      password: config.password,
+      database: config.database,
+      connectTimeout: 10000,
+      acquireTimeout: 10000,
+      timeout: 10000,
+      reconnect: true
+    });
+    
+    // 测试连接
+    await connection.ping();
+    
+    // 保存连接
+    dbConnections.set(connectionId, {
+      connection,
+      config,
+      status: 'connected',
+      connectedAt: new Date().toISOString(),
+      lastUsed: new Date().toISOString()
+    });
+    
+    currentConnectionId = connectionId;
+    
+    return { 
+      success: true, 
+      connectionId,
+      message: '连接成功'
+    };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// 关闭指定连接
+async function closeConnection(connectionId) {
+  if (dbConnections.has(connectionId)) {
+    const connInfo = dbConnections.get(connectionId);
+    try {
+      await connInfo.connection.end();
+    } catch (err) {
+      console.error('关闭连接失败:', err);
+    }
+    dbConnections.delete(connectionId);
+  }
+}
+
+// 关闭所有连接
+ipcMain.handle('close-all-connections', async () => {
+  for (const [connectionId] of dbConnections) {
+    await closeConnection(connectionId);
+  }
+  currentConnectionId = null;
+  return { success: true };
+});
+
+// 切换当前连接
+ipcMain.handle('switch-connection', async (event, connectionId) => {
+  if (dbConnections.has(connectionId)) {
+    currentConnectionId = connectionId;
+    const connInfo = dbConnections.get(connectionId);
+    connInfo.lastUsed = new Date().toISOString();
+    return { success: true, connectionId };
+  }
+  return { success: false, error: '连接不存在' };
+});
+
+// 获取连接状态
+ipcMain.handle('get-connection-status', () => {
+  const status = [];
+  for (const [connectionId, connInfo] of dbConnections) {
+    status.push({
+      id: connectionId,
+      name: connInfo.config.name || `${connInfo.config.host}:${connInfo.config.port}`,
+      status: connInfo.status,
+      connectedAt: connInfo.connectedAt,
+      lastUsed: connInfo.lastUsed,
+      isCurrent: connectionId === currentConnectionId
+    });
+  }
+  return status;
+});
+
+// 测试连接
+ipcMain.handle('test-connection', async (event, config) => {
+  try {
+    const connection = await mysql.createConnection({
+      host: config.host,
+      port: config.port,
+      user: config.user,
+      password: config.password,
+      database: config.database,
+      connectTimeout: 5000
+    });
+    
+    await connection.ping();
+    await connection.end();
+    
+    return { success: true, message: '连接测试成功' };
   } catch (err) {
     return { success: false, error: err.message };
   }
@@ -158,10 +302,16 @@ function formatDateToCN(val) {
   return val;
 }
 
-// 查询MySQL
+// 查询MySQL - 修改为使用当前连接
 ipcMain.handle('mysql-query', async (event, sql) => {
   try {
-    if (!dbConnection) throw new Error('未连接数据库');
+    if (!currentConnectionId || !dbConnections.has(currentConnectionId)) {
+      throw new Error('未连接数据库');
+    }
+    
+    const connInfo = dbConnections.get(currentConnectionId);
+    const connection = connInfo.connection;
+    
     let query = sql.trim();
     // 如果是SELECT语句且没有LIMIT，自动加上LIMIT 50
     if (/^select\b/i.test(query) && !/\blimit\b/i.test(query)) {
@@ -169,7 +319,12 @@ ipcMain.handle('mysql-query', async (event, sql) => {
       query = query.replace(/;\s*$/, '');
       query += ' LIMIT 50';
     }
-    const [rows] = await dbConnection.query(query);
+    
+    const [rows] = await connection.query(query);
+    
+    // 更新最后使用时间
+    connInfo.lastUsed = new Date().toISOString();
+    
     // 格式化所有时间字段
     const formattedRows = rows.map(row => {
       const newRow = { ...row };
@@ -180,29 +335,38 @@ ipcMain.handle('mysql-query', async (event, sql) => {
       }
       return newRow;
     });
+    
     return { success: true, rows: formattedRows };
   } catch (err) {
     return { success: false, error: err.message };
   }
 });
 
-// 导出数据（导出为CSV）
+// 导出数据（导出为CSV）- 修改为使用当前连接
 ipcMain.handle('mysql-export', async (event, sql) => {
   const { dialog } = require('electron');
   try {
-    if (!dbConnection) throw new Error('未连接数据库');
+    if (!currentConnectionId || !dbConnections.has(currentConnectionId)) {
+      throw new Error('未连接数据库');
+    }
+    
+    const connInfo = dbConnections.get(currentConnectionId);
+    const connection = connInfo.connection;
+    
     let query = sql.trim();
     // 如果是SELECT语句且没有LIMIT，自动加上LIMIT 1000
     if (/^select\b/i.test(query) && !/\blimit\b/i.test(query)) {
       query = query.replace(/;\s*$/, '');
       query += ' LIMIT 1000';
     }
-    const [rows] = await dbConnection.query(query);
+    
+    const [rows] = await connection.query(query);
     const { filePath } = await dialog.showSaveDialog({
       title: '导出数据',
       defaultPath: 'export.csv',
       filters: [{ name: 'CSV', extensions: ['csv'] }]
     });
+    
     if (filePath) {
       // 转换为CSV
       if (!rows.length) throw new Error('无数据可导出');
@@ -268,34 +432,66 @@ const parseCSV = (content) => {
   return { headers, rows };
 };
 
-// 导入数据（从CSV导入）
+// 导入数据（从CSV导入）- 修改为使用当前连接
 ipcMain.handle('mysql-import', async (event, { table, content }) => {
   try {
-    if (!dbConnection) throw new Error('未连接数据库');
+    if (!currentConnectionId || !dbConnections.has(currentConnectionId)) {
+      throw new Error('未连接数据库');
+    }
+    
+    const connInfo = dbConnections.get(currentConnectionId);
+    const connection = connInfo.connection;
+    
     if (!table) throw new Error('表名不能为空');
     if (!content) throw new Error('CSV内容为空');
+    
     const { headers, rows } = parseCSV(content);
     if (!rows.length) throw new Error('CSV无有效数据');
+    
     let successCount = 0;
     let failCount = 0;
+    
     for (const row of rows) {
       // 动态生成字段和参数
       const fields = headers.map(h => `\`${h}\``).join(',');
       const placeholders = headers.map(() => '?').join(',');
       const values = headers.map(h => row[h]);
       const sql = `INSERT INTO \`${table}\` (${fields}) VALUES (${placeholders})`;
-      console.log(sql,values);
+      
       try {
-        await dbConnection.query(sql, values);
+        await connection.query(sql, values);
         successCount++;
       } catch (e) {
         console.log(e);
         failCount++;
       }
     }
+    
     return { success: true, successCount, failCount };
   } catch (err) {
     return { success: false, error: err.message };
+  }
+});
+
+// 选择CSV文件
+ipcMain.handle('select-csv-file', async (event) => {
+  const { dialog } = require('electron');
+  try {
+    const result = await dialog.showOpenDialog({
+      title: '选择CSV文件',
+      filters: [{ name: 'CSV', extensions: ['csv'] }],
+      properties: ['openFile']
+    });
+    
+    if (result.canceled) {
+      return { canceled: true };
+    }
+    
+    const filePath = result.filePaths[0];
+    const content = fs.readFileSync(filePath, 'utf-8');
+    return { canceled: false, content };
+  } catch (err) {
+    return { canceled: true, error: err.message };
   }
 });
 
@@ -324,4 +520,4 @@ ipcMain.handle('open-csv-dialog', async () => {
   if (canceled || !filePaths || !filePaths[0]) return { canceled: true };
   const content = fs.readFileSync(filePaths[0], 'utf-8');
   return { canceled: false, content };
-c}); 
+}); 

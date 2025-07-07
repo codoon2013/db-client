@@ -40,18 +40,17 @@
     "electron-builder": "^24.6.4"
   },
   "dependencies": {
-    "electron-store": "^8.1.0",
+    "electron-store": "^8.2.0",
     "mysql2": "^3.14.1"
   },
   "build": {
     "appId": "com.yourcompany.mysqlclient",
-    "productName": "MySQL Client",
+    "productName": "db-client",
     "directories": {
       "output": "dist"
     },
     "files": [
       "**/*",
-      "!node_modules/**/*",
       "!dist/**/*",
       "!.git/**/*",
       "!*.md",
@@ -61,11 +60,13 @@
     "asar": false,
     "mac": {
       "category": "public.app-category.developer-tools",
-      "icon": "assets/icon.icns",
       "target": [
         {
           "target": "zip",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         }
       ],
       "hardenedRuntime": true,
@@ -74,28 +75,34 @@
       "entitlementsInherit": "assets/entitlements.mac.plist"
     },
     "win": {
-      "icon": "assets/icon.ico",
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ]
     },
     "linux": {
-      "icon": "assets/icon.png",
       "target": [
         {
           "target": "AppImage",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "deb",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "category": "Development"
@@ -107,8 +114,7 @@
       "createStartMenuShortcut": true
     },
     "dmg": {
-      "title": "MySQL Client",
-      "icon": "assets/icon.icns",
+      "title": "db-client",
       "window": {
         "width": 540,
         "height": 380

@@ -3,6 +3,7 @@ const path = require('path');
 const Store = require('electron-store');
 const mysql = require('mysql2/promise');
 const fs = require('fs');
+const XLSX = require('xlsx'); // 导入 xlsx 库
 
 // 初始化配置存储
 const store = new Store();
@@ -342,7 +343,7 @@ ipcMain.handle('mysql-query', async (event, sql) => {
   }
 });
 
-// 导出数据（导出为CSV）- 修改为使用当前连接
+// 导出数据（导出为Excel）- 修改为使用当前连接
 ipcMain.handle('mysql-export', async (event, sql) => {
   const { dialog } = require('electron');
   try {
@@ -354,28 +355,36 @@ ipcMain.handle('mysql-export', async (event, sql) => {
     const connection = connInfo.connection;
     
     let query = sql.trim();
-    // 如果是SELECT语句且没有LIMIT，自动加上LIMIT 1000
-    if (/^select\b/i.test(query) && !/\blimit\b/i.test(query)) {
-      query = query.replace(/;\s*$/, '');
-      query += ' LIMIT 1000';
-    }
     
     const [rows] = await connection.query(query);
+    
+    if (!rows.length) throw new Error('无数据可导出');
+    
+    // 格式化数据
+    const formattedRows = rows.map(row => {
+      const newRow = { ...row };
+      for (const k in newRow) {
+        if (newRow[k] instanceof Date || (typeof newRow[k] === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(newRow[k]))) {
+          newRow[k] = formatDateToCN(newRow[k]);
+        }
+      }
+      return newRow;
+    });
+    
     const { filePath } = await dialog.showSaveDialog({
       title: '导出数据',
-      defaultPath: 'export.csv',
-      filters: [{ name: 'CSV', extensions: ['csv'] }]
+      defaultPath: `query_results_${new Date().toISOString().slice(0, 10)}.xlsx`,
+      filters: [{ name: 'Excel', extensions: ['xlsx'] }]
     });
     
     if (filePath) {
-      // 转换为CSV
-      if (!rows.length) throw new Error('无数据可导出');
-      const keys = Object.keys(rows[0]);
-      const csvRows = [keys.join(',')];
-      for (const row of rows) {
-        csvRows.push(keys.map(k => formatCSVCell(row[k])).join(','));
-      }
-      require('fs').writeFileSync(filePath, csvRows.join('\n'), 'utf-8');
+      // 创建 Excel 工作簿
+      const worksheet = XLSX.utils.json_to_sheet(formattedRows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Query Results');
+      
+      // 写入文件
+      XLSX.writeFile(workbook, filePath);
       return { success: true, filePath };
     } else {
       return { success: false, error: '用户取消导出' };

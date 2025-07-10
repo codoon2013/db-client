@@ -579,7 +579,7 @@ function showImportTableModal() {
     const modal = document.getElementById('importTableModal');
     if (modal) {
         // 设置默认表名
-        document.getElementById('importTableName').value = 'club_challenge_score';
+        document.getElementById('importTableName').value = 'change_club_user_score';
         modal.classList.add('show');
         // 聚焦到表名输入框
         setTimeout(() => {
@@ -1043,6 +1043,17 @@ async function exportData() {
         return;
     }
     
+    // 防重复点击
+    const exportBtn = document.getElementById('dbExportBtn');
+    if (exportBtn.disabled) {
+        return; // 如果按钮已禁用，直接返回
+    }
+    
+    // 禁用按钮并显示加载状态
+    exportBtn.disabled = true;
+    const originalText = exportBtn.innerHTML;
+    exportBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 导出Excel中...';
+    
     try {
         const result = await ipcRenderer.invoke('mysql-export', sql);
         if (result.success) {
@@ -1052,6 +1063,10 @@ async function exportData() {
         }
     } catch (error) {
         showMessage(`导出失败: ${error.message}`, 'error');
+    } finally {
+        // 恢复按钮状态
+        exportBtn.disabled = false;
+        exportBtn.innerHTML = originalText;
     }
 }
 

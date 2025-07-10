@@ -1182,6 +1182,7 @@ function showHistoryModal(content) {
     // 创建模态对话框
     const modal = document.createElement('div');
     modal.className = 'modal-overlay show';
+    modal.setAttribute('data-modal-type', 'history');
     modal.innerHTML = `
         <div class="modal-content">
             <div class="modal-header">
@@ -1210,7 +1211,7 @@ function showHistoryModal(content) {
 
 // 关闭历史记录模态对话框
 function closeHistoryModal() {
-    const modal = document.querySelector('.modal-overlay');
+    const modal = document.querySelector('.modal-overlay[data-modal-type="history"]');
     if (modal) {
         modal.remove();
     }

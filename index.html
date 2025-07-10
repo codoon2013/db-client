@@ -249,7 +249,7 @@
                                         <i class="fas fa-file-excel"></i> 导出Excel
                                     </button>
                                     <button class="btn btn-secondary" id="confirmImportBtn">
-                                        <i class="fas fa-upload"></i> 导入数据
+                                        <i class="fas fa-file-excel"></i> 导入Excel
                                     </button>
                                 </div>
                             </div>
@@ -319,7 +319,7 @@
                 <div class="modal-overlay" id="importTableModal">
                     <div class="modal-content">
                         <div class="modal-header">
-                            <h3><i class="fas fa-upload"></i> 导入数据</h3>
+                            <h3><i class="fas fa-file-excel"></i> 导入Excel</h3>
                             <button class="modal-close" id="closeImportTableModal">
                                 <i class="fas fa-times"></i>
                             </button>
@@ -328,12 +328,12 @@
                             <form id="importTableForm">
                                 <div class="form-group">
                                     <label for="importTableName">目标表名 *</label>
-                                    <input type="text" id="importTableName" placeholder="请输入要导入的表名" value="club_challenge_score" required>
-                                    <small class="form-text">请输入要导入数据的目标表名，如果表不存在将自动创建</small>
+                                    <input type="text" id="importTableName"  value="change_club_user_score" required>
+                                    <small class="form-text">请输入要导入Excel数据的目标表名，如果表不存在将自动创建</small>
                                 </div>
                                 <div class="form-actions">
                                     <button type="button" class="btn btn-primary" id="confirmImportTableBtn">
-                                        <i class="fas fa-upload"></i> 确认导入
+                                        <i class="fas fa-file-excel"></i> 确认导入
                                     </button>
                                     <button type="button" class="btn btn-secondary" id="cancelImportTableBtn">
                                         <i class="fas fa-times"></i> 取消

@@ -441,7 +441,7 @@ const parseCSV = (content) => {
   return { headers, rows };
 };
 
-// 导入数据（从CSV导入）- 修改为使用当前连接
+// 导入数据（从Excel导入）- 修改为使用当前连接
 ipcMain.handle('mysql-import', async (event, { table, content }) => {
   try {
     if (!currentConnectionId || !dbConnections.has(currentConnectionId)) {
@@ -452,10 +452,23 @@ ipcMain.handle('mysql-import', async (event, { table, content }) => {
     const connection = connInfo.connection;
     
     if (!table) throw new Error('表名不能为空');
-    if (!content) throw new Error('CSV内容为空');
+    if (!content) throw new Error('Excel内容为空');
     
-    const { headers, rows } = parseCSV(content);
-    if (!rows.length) throw new Error('CSV无有效数据');
+    // 解析Excel数据
+    let excelData;
+    try {
+      excelData = JSON.parse(content);
+    } catch (e) {
+      throw new Error('Excel数据格式错误');
+    }
+    
+    if (!excelData || !Array.isArray(excelData) || excelData.length === 0) {
+      throw new Error('Excel无有效数据');
+    }
+    
+    // 获取表头（字段名）
+    const headers = Object.keys(excelData[0]);
+    const rows = excelData;
     
     let successCount = 0;
     let failCount = 0;
@@ -482,13 +495,13 @@ ipcMain.handle('mysql-import', async (event, { table, content }) => {
   }
 });
 
-// 选择CSV文件
+// 选择Excel文件
 ipcMain.handle('select-csv-file', async (event) => {
   const { dialog } = require('electron');
   try {
     const result = await dialog.showOpenDialog({
-      title: '选择CSV文件',
-      filters: [{ name: 'CSV', extensions: ['csv'] }],
+      title: '选择Excel文件',
+      filters: [{ name: 'Excel', extensions: ['xlsx', 'xls'] }],
       properties: ['openFile']
     });
     
@@ -497,8 +510,38 @@ ipcMain.handle('select-csv-file', async (event) => {
     }
     
     const filePath = result.filePaths[0];
-    const content = fs.readFileSync(filePath, 'utf-8');
-    return { canceled: false, content };
+    
+    // 读取Excel文件
+    const workbook = XLSX.readFile(filePath);
+    const sheetName = workbook.SheetNames[0]; // 获取第一个工作表
+    const worksheet = workbook.Sheets[sheetName];
+    
+    // 将Excel数据转换为JSON格式
+    const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+    
+    if (rows.length < 2) {
+      throw new Error('Excel文件数据不足，至少需要表头和数据行');
+    }
+    
+    // 提取表头和数据
+    const headers = rows[0];
+    const dataRows = rows.slice(1);
+    
+    // 转换为对象数组格式
+    const jsonData = dataRows.map(row => {
+      const obj = {};
+      headers.forEach((header, index) => {
+        obj[header] = row[index] || null;
+      });
+      return obj;
+    });
+    
+    return { 
+      canceled: false, 
+      content: JSON.stringify(jsonData),
+      headers: headers,
+      rows: jsonData
+    };
   } catch (err) {
     return { canceled: true, error: err.message };
   }

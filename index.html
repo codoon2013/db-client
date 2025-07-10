@@ -248,16 +248,12 @@
                                     <button class="btn btn-secondary" id="dbExportBtn">
                                         <i class="fas fa-download"></i> 导出结果
                                     </button>
-                                    <button class="btn btn-secondary" id="dbImportBtn">
+                                    <button class="btn btn-secondary" id="confirmImportBtn">
                                         <i class="fas fa-upload"></i> 导入数据
                                     </button>
                                 </div>
                             </div>
                             <textarea id="dbQueryInput" rows="6" placeholder="输入SQL语句，例如: SELECT * FROM users LIMIT 10"></textarea>
-                            <div class="import-config" id="importConfig" style="display: none;">
-                                <input type="text" id="dbImportTable" placeholder="目标表名" value="users">
-                                <button class="btn btn-warning" id="confirmImportBtn">确认导入</button>
-                            </div>
                             <div class="db-query-result" id="dbQueryResult"></div>
                         </div>
                     </div>
@@ -311,6 +307,35 @@
                                         <i class="fas fa-save"></i> 保存连接
                                     </button>
                                     <button type="button" class="btn btn-danger" id="cancelConnectionModalBtn">
+                                        <i class="fas fa-times"></i> 取消
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 导入表名输入模态对话框 -->
+                <div class="modal-overlay" id="importTableModal">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3><i class="fas fa-upload"></i> 导入数据</h3>
+                            <button class="modal-close" id="closeImportTableModal">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        <div class="modal-body">
+                            <form id="importTableForm">
+                                <div class="form-group">
+                                    <label for="importTableName">目标表名 *</label>
+                                    <input type="text" id="importTableName" placeholder="请输入要导入的表名" value="club_challenge_score" required>
+                                    <small class="form-text">请输入要导入数据的目标表名，如果表不存在将自动创建</small>
+                                </div>
+                                <div class="form-actions">
+                                    <button type="button" class="btn btn-primary" id="confirmImportTableBtn">
+                                        <i class="fas fa-upload"></i> 确认导入
+                                    </button>
+                                    <button type="button" class="btn btn-secondary" id="cancelImportTableBtn">
                                         <i class="fas fa-times"></i> 取消
                                     </button>
                                 </div>

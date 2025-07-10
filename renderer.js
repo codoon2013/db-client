@@ -408,7 +408,7 @@ function setupDatabaseEvents() {
     // 确认导入按钮
     const confirmImportBtn = document.getElementById('confirmImportBtn');
     if (confirmImportBtn) {
-        confirmImportBtn.addEventListener('click', importData);
+        confirmImportBtn.addEventListener('click', showImportTableModal);
     }
     
     // 查询历史按钮
@@ -426,6 +426,12 @@ function setupModalEvents() {
     const testBtn = document.getElementById('testConnectionModalBtn');
     const saveBtn = document.getElementById('saveConnectionModalBtn');
     
+    // 导入表名模态对话框
+    const importTableModal = document.getElementById('importTableModal');
+    const closeImportBtn = document.getElementById('closeImportTableModal');
+    const cancelImportBtn = document.getElementById('cancelImportTableBtn');
+    const confirmImportTableBtn = document.getElementById('confirmImportTableBtn');
+    
     // 关闭模态对话框
     if (closeBtn) {
         closeBtn.addEventListener('click', closeConnectionModal);
@@ -435,11 +441,42 @@ function setupModalEvents() {
         cancelBtn.addEventListener('click', closeConnectionModal);
     }
     
+    // 关闭导入表名模态对话框
+    if (closeImportBtn) {
+        closeImportBtn.addEventListener('click', closeImportTableModal);
+    }
+    
+    if (cancelImportBtn) {
+        cancelImportBtn.addEventListener('click', closeImportTableModal);
+    }
+    
+    // 确认导入表名
+    if (confirmImportTableBtn) {
+        confirmImportTableBtn.addEventListener('click', () => {
+            const tableName = document.getElementById('importTableName').value.trim();
+            if (!tableName) {
+                showMessage('请输入目标表名', 'error');
+                return;
+            }
+            closeImportTableModal();
+            importData(tableName);
+        });
+    }
+    
     // 点击遮罩层关闭
     if (modal) {
         modal.addEventListener('click', (e) => {
             if (e.target === modal) {
                 closeConnectionModal();
+            }
+        });
+    }
+    
+    // 点击遮罩层关闭导入表名模态对话框
+    if (importTableModal) {
+        importTableModal.addEventListener('click', (e) => {
+            if (e.target === importTableModal) {
+                closeImportTableModal();
             }
         });
     }
@@ -458,6 +495,9 @@ function setupModalEvents() {
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && modal && modal.classList.contains('show')) {
             closeConnectionModal();
+        }
+        if (e.key === 'Escape' && importTableModal && importTableModal.classList.contains('show')) {
+            closeImportTableModal();
         }
     });
 }
@@ -526,6 +566,33 @@ function closeConnectionModal() {
     if (modal) {
         modal.classList.remove('show');
         clearModalForm();
+    }
+}
+
+// 显示导入表名模态对话框
+function showImportTableModal() {
+    if (!currentConnectionId) {
+        showMessage('请先连接数据库', 'error');
+        return;
+    }
+    
+    const modal = document.getElementById('importTableModal');
+    if (modal) {
+        // 设置默认表名
+        document.getElementById('importTableName').value = 'club_challenge_score';
+        modal.classList.add('show');
+        // 聚焦到表名输入框
+        setTimeout(() => {
+            document.getElementById('importTableName').focus();
+        }, 100);
+    }
+}
+
+// 关闭导入表名模态对话框
+function closeImportTableModal() {
+    const modal = document.getElementById('importTableModal');
+    if (modal) {
+        modal.classList.remove('show');
     }
 }
 
@@ -989,15 +1056,9 @@ async function exportData() {
 }
 
 // 导入数据
-async function importData() {
+async function importData(tableName) {
     if (!currentConnectionId) {
         showMessage('请先连接数据库', 'error');
-        return;
-    }
-    
-    const tableName = document.getElementById('dbImportTable').value.trim();
-    if (!tableName) {
-        showMessage('请输入目标表名', 'error');
         return;
     }
     

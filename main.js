@@ -3,7 +3,19 @@ const path = require('path');
 const Store = require('electron-store');
 const mysql = require('mysql2/promise');
 const fs = require('fs');
-const XLSX = require('xlsx'); // 导入 xlsx 库
+// 动态导入 xlsx 库
+let XLSX;
+async function loadXLSX() {
+  if (!XLSX) {
+    try {
+      XLSX = require('xlsx');
+    } catch (error) {
+      console.error('Failed to load xlsx module:', error);
+      throw new Error('Excel 功能不可用，请检查 xlsx 模块安装');
+    }
+  }
+  return XLSX;
+}
 
 // 初始化配置存储
 const store = new Store();
@@ -379,6 +391,7 @@ ipcMain.handle('mysql-export', async (event, sql) => {
     
     if (filePath) {
       // 创建 Excel 工作簿
+      const XLSX = await loadXLSX();
       const worksheet = XLSX.utils.json_to_sheet(formattedRows);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, 'Query Results');
@@ -512,6 +525,7 @@ ipcMain.handle('select-csv-file', async (event) => {
     const filePath = result.filePaths[0];
     
     // 读取Excel文件
+    const XLSX = await loadXLSX();
     const workbook = XLSX.readFile(filePath);
     const sheetName = workbook.SheetNames[0]; // 获取第一个工作表
     const worksheet = workbook.Sheets[sheetName];

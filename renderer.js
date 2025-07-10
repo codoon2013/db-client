@@ -1030,7 +1030,10 @@ function escapeHtml(text) {
 
 // 导出数据
 async function exportData() {
-    const sql = getSqlQuery();
+    const queryInput = document.getElementById('dbQueryInput');
+    const sql = queryInput.value.trim();
+
+    // const sql = getSqlQuery();
     
     if (!sql) {
         showMessage('请输入SQL语句', 'error');

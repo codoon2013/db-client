@@ -688,7 +688,7 @@ body {
 
 /* 双击编辑提示 */
 .connection-item::after {
-    content: '双击编辑';
+    content: '';
     position: absolute;
     top: 50%;
     right: 120px;

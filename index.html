@@ -213,6 +213,13 @@
                         <div class="db-connections-section">
                             <div class="connections-header">
                                 <h3><i class="fas fa-database"></i> 数据库连接管理</h3>
+                                <!-- 当前连接状态 -->
+                                <div class="current-connection-status" id="currentConnectionStatus">
+                                    <div class="status-indicator">
+                                        <i class="fas fa-circle status-dot"></i>
+                                        <span>未连接</span>
+                                    </div>
+                                </div>
                                 <button class="btn btn-primary" id="newConnectionBtn">
                                     <i class="fas fa-plus"></i> 新建连接
                                 </button>
@@ -223,13 +230,7 @@
                                 <!-- 连接项目将在这里动态生成 -->
                             </div>
                             
-                            <!-- 当前连接状态 -->
-                            <div class="current-connection-status" id="currentConnectionStatus">
-                                <div class="status-indicator">
-                                    <i class="fas fa-circle status-dot"></i>
-                                    <span>未连接</span>
-                                </div>
-                            </div>
+                            
                         </div>
 
                         <!-- SQL查询区域 -->

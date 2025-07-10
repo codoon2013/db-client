@@ -33,10 +33,12 @@ function initializeApp() {
     setInterval(updateTime, 1000);
     
     // 初始化应用程序网格
-    initializeAppsGrid();
+    // initializeAppsGrid();
     
     // 初始化网络信息
-    initializeNetworkInfo();
+    // initializeNetworkInfo();
+
+    switchView('database');
 }
 
 // 设置事件监听器

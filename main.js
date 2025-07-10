@@ -199,10 +199,7 @@ ipcMain.handle('mysql-connect', async (event, config) => {
       user: config.user,
       password: config.password,
       database: config.database,
-      connectTimeout: 10000,
-      acquireTimeout: 10000,
-      timeout: 10000,
-      reconnect: true
+      connectTimeout: 10000
     });
     
     // 测试连接

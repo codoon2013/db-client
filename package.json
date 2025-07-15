@@ -1,0 +1,60 @@
+{
+  "name": "db-client",
+  "version": "1.0.0",
+  "description": "Electron + Vue + Element UI Desktop Application",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "NODE_ENV=development concurrently \"npm run serve\" \"wait-on http://localhost:8080 && electron .\"",
+    "serve": "vue-cli-service serve",
+    "build": "vue-cli-service build",
+    "electron:build": "npm run build && electron-builder",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "keywords": [
+    "electron",
+    "vue",
+    "element-ui",
+    "desktop"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "devDependencies": {
+    "@vue/cli-service": "^5.0.8",
+    "concurrently": "^7.6.0",
+    "electron": "^25.0.0",
+    "electron-builder": "^24.6.4",
+    "wait-on": "^7.0.1"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.1.0",
+    "element-plus": "^2.3.8",
+    "mssql": "^11.0.1",
+    "mysql2": "^3.14.2",
+    "oracledb": "^6.8.0",
+    "pg": "^8.16.3",
+    "sqlite3": "^5.1.7",
+    "vue": "^3.3.4"
+  },
+  "build": {
+    "appId": "com.example.db-client",
+    "productName": "DB Client",
+    "directories": {
+      "output": "dist_electron"
+    },
+    "files": [
+      "dist/**/*",
+      "main.js",
+      "node_modules/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  }
+}

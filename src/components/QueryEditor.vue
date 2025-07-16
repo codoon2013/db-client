@@ -288,17 +288,29 @@
         sql = selectionValue;
       }
 
-      executing.value = true;
+      if (sql.trim() === '') {
+        ElMessage.warning('请选中SQL查询语句并执行');
+        return;
+      }
 
+      if ((sql.match(/;/g) || []).length > 1) {
+        ElMessage.warning('禁止执行多条SQL语句');
+        return;
+      }
+
+      executing.value = true;
       try {
         const connectionId = conn.connectionId;
         console.log(connectionId);
         const result = await window.electronAPI.executeQuery(connectionId, sql);
-        
-        console.log(result);
+      
         queryResult.value = result;
-        
-        ElMessage.success('查询执行成功');
+        console.log(result);
+        if (result.success) {
+          ElMessage.success('查询执行成功');
+        } else {
+          ElMessage.error('查询执行失败：' + result.message);
+        }
       } catch (error) {
         queryResult.value = {
           success: false,

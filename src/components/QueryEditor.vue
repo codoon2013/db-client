@@ -32,17 +32,16 @@
             </div>
           </template>
           
-          <div class="sql-editor">
-            <el-input
-              v-model="sqlQuery"
-              type="textarea"
-              :rows="5"
-              placeholder="请输入 SQL 查询语句..."
-              class="sql-textarea"
-            />
-            <div style="display: flex; justify-content: flex-end; margin-top: 8px; gap: 8px;">
+          <div class="sql-editor" :style="{height: editorHeight + 'px'}">
+            <div id="editor" style="width:100%;height:100%"></div>
+            <div
+              class="resize-bar"
+              @mousedown="startResize"
+            ></div>
+          </div>
+          <div style="display: flex; justify-content: flex-end; margin-top: 8px; gap: 8px;">
               <el-button-group>
-                <el-button type="primary" @click="executeQuery" :loading="executing" :disabled="!selectedConnection">
+                <el-button type="primary" @click="executeQuery" :loading="executing">
                   <el-icon><VideoPlay /></el-icon>
                   执行
                 </el-button>
@@ -56,7 +55,7 @@
                 </el-button>
               </el-button-group>
             </div>
-          </div>
+
 
           <!-- 删除查询模板 el-collapse 区域 -->
         </el-card>
@@ -153,19 +152,18 @@
   </div>
 </template>
 
-<script>
-import { ref, reactive, onMounted, computed } from 'vue';
-import { ElMessage } from 'element-plus';
+<script setup>
+    import { ref, reactive, onMounted, computed, watch } from 'vue';
+    import { ElMessage } from 'element-plus';
+    import { editor as MonacoEditor } from 'monaco-editor';  
 
-export default {
-  name: 'QueryEditor',
-  setup() {
     const selectedConnection = ref(null);
-    const sqlQuery = ref('');
+    const sqlQuery = ref('select * from user limit 10');
     const executing = ref(false);
     const activeTemplate = ref([]);
     const saveDialogVisible = ref(false);
     const queryResult = ref(null);
+    const editorHeight = ref(200); // 初始高度
 
     const connections = ref([]);
     const availableConnections = ref([]);
@@ -174,6 +172,51 @@ export default {
       name: '',
       description: ''
     });
+
+    let monacoInstance = null;
+
+    const startResize = (e) => {
+      const startY = e.clientY;
+      const startHeight = editorHeight.value;
+
+      const onMouseMove = (moveEvent) => {
+        const delta = moveEvent.clientY - startY;
+        editorHeight.value = Math.max(100, startHeight + delta); // 最小高度100px
+        if (monacoInstance) {
+          monacoInstance.layout();
+        }
+      };
+
+      const onMouseUp = () => {
+        window.removeEventListener('mousemove', onMouseMove);
+        window.removeEventListener('mouseup', onMouseUp);
+      };
+
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mouseup', onMouseUp);
+    };
+
+    onMounted(() => {
+      const dom = document.getElementById('editor');
+      if (dom) {
+        monacoInstance = MonacoEditor.create(dom, {
+          value: sqlQuery.value,
+          language: 'sql',
+          theme: 'vs-dark',
+          automaticLayout: true,
+          fontSize: 14,
+          minimap: { enabled: false },
+          wordWrap: 'on',
+          scrollBeyondLastLine: false,
+        });
+
+        // 监听内容变化，双向绑定
+        monacoInstance.onDidChangeModelContent(() => {
+          sqlQuery.value = monacoInstance.getValue();
+        });
+      }
+    });
+
 
     const currentConnStatus = computed(() => {
       const conn = availableConnections.value.find(c => c.id === selectedConnection.value);
@@ -211,6 +254,17 @@ export default {
       }
     };
 
+    const getSelectionValue = ( instance) => {
+        const selection = instance.getSelection(); // 获取光标选中的值
+        const { startLineNumber, endLineNumber, startColumn, endColumn } = selection;
+        const model = instance.getModel();
+        return model.getValueInRange({
+          startLineNumber,
+          startColumn,
+          endLineNumber,
+          endColumn,
+        });
+      }
     const executeQuery = async () => {
       if (!selectedConnection.value) {
         ElMessage.warning('请先选择数据库连接');
@@ -227,11 +281,17 @@ export default {
         ElMessage.warning('请输入SQL查询语句');
         return;
       }
+      let sql = sqlQuery.value.trim();
+
+      if (monacoInstance) {
+        const selectionValue = getSelectionValue(monacoInstance);
+        sql = selectionValue;
+      }
+
       executing.value = true;
 
       try {
         const connectionId = conn.connectionId;
-        const sql = sqlQuery.value.trim();
         console.log(connectionId);
         const result = await window.electronAPI.executeQuery(connectionId, sql);
         
@@ -253,16 +313,10 @@ export default {
     const clearQuery = () => {
       sqlQuery.value = '';
       queryResult.value = null;
+      monacoInstance.setValue('');
       ElMessage.info('查询已清空');
     };
 
-    const insertTemplate = (template) => {
-      if (typeof template === 'string') {
-        sqlQuery.value = template;
-      } else {
-        sqlQuery.value = template.sql;
-      }
-    };
 
     const saveQuery = () => {
       if (!sqlQuery.value.trim()) {
@@ -303,25 +357,7 @@ export default {
 
     onMounted(loadConnections);
 
-    return {
-      selectedConnection,
-      sqlQuery,
-      executing,
-      activeTemplate,
-      saveDialogVisible,
-      queryResult,
-      availableConnections,
-      saveForm,
-      executeQuery,
-      clearQuery,
-      saveQuery,
-      confirmSave,
-      exportResult,
-      currentConnStatus,
-      toggleConnectionStatus
-    };
-  }
-};
+    
 </script>
 
 <style scoped>
@@ -362,8 +398,24 @@ export default {
 }
 
 .sql-editor {
-  flex: 1;
-  margin-bottom: 50px;
+  position: relative;
+  width: 100%;
+  min-height: 120px;
+  border: 1px solid #e4e7ed;
+  border-radius: 4px;
+  overflow: hidden;
+  /* transition: height 0.1s; */
+}
+.resize-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 8px;
+  cursor: ns-resize;
+  background: #f2f2f2;
+  border-top: 1px solid #e4e7ed;
+  z-index: 10;
 }
 
 .sql-textarea {
@@ -434,5 +486,17 @@ export default {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
+}
+
+.sql-editor {
+  width: 100%;
+  min-height: 220px;
+  border: 1px solid #e4e7ed;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.sql-editor :deep(.monaco-editor) {
+  min-height: 200px;
 }
 </style> 

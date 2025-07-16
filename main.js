@@ -195,11 +195,17 @@ ipcMain.handle('execute-query', async (event, connectionId, query) => {
     if (!connection) {
       return { success: false, message: '连接不存在' };
     }
-    let result, columns;
+    let result, columns,fieldMap;
     if (connection.execute) {
       // MySQL
-      const [rows] = await connection.execute(query);
+      const [rows,fields] = await connection.execute(query);
       result = rows;
+      fieldMap = fields.map(field => {
+        return {
+          name:field.name,
+          type:field.type
+        }
+      });
       columns = rows.length > 0 ? Object.keys(rows[0]) : [];
     } else if (connection.query) {
       // PostgreSQL
@@ -212,7 +218,8 @@ ipcMain.handle('execute-query', async (event, connectionId, query) => {
     return {
       success: true,
       data: result,
-      columns,
+      columns:columns,
+      fieldMap:fieldMap,
       affectedRows: result.length
     };
   } catch (error) {

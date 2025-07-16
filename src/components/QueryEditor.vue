@@ -346,9 +346,9 @@ export default {
   align-items: center;
 }
 
-.editor-container {
+/* .editor-container {
   height: calc(100vh - 200px);
-}
+} */
 
 .editor-card,
 .result-card {
@@ -363,7 +363,7 @@ export default {
 
 .sql-editor {
   flex: 1;
-  margin-bottom: 16px;
+  margin-bottom: 50px;
 }
 
 .sql-textarea {

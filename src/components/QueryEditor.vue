@@ -265,6 +265,25 @@
           endColumn,
         });
       }
+
+      const appendLimitIfMissing = (sql) => {
+        let s = sql.trim().replace(/;$/, '').trim();
+        if (!/^select/i.test(s)) return sql;
+        // 只要有 limit 关键字就不加
+        if (s.includes('limit')) return sql;
+        return s + ' limit 100';
+      } 
+
+      const hasDangerousSql = (sql) => {
+        return sql
+          .split(';')
+          .map(s => s.trim())
+          .filter(Boolean)
+          .some(s =>
+            ((/^delete\s+/i.test(s) || /^update\s+/i.test(s)) && !/\bwhere\b/i.test(s))
+          );
+      }
+
     const executeQuery = async () => {
       if (!selectedConnection.value) {
         ElMessage.warning('请先选择数据库连接');
@@ -287,7 +306,6 @@
         const selectionValue = getSelectionValue(monacoInstance);
         sql = selectionValue;
       }
-
       if (sql.trim() === '') {
         ElMessage.warning('请选中SQL查询语句并执行');
         return;
@@ -295,6 +313,13 @@
 
       if ((sql.match(/;/g) || []).length > 1) {
         ElMessage.warning('禁止执行多条SQL语句');
+        return;
+      }
+
+      sql = appendLimitIfMissing(sql);
+      
+      if (hasDangerousSql(sql)) {
+        ElMessage.warning('禁止执行删除或更新语句');
         return;
       }
 
@@ -351,13 +376,29 @@
       saveDialogVisible.value = false;
     };
 
-    const exportResult = () => {
-      if (!queryResult.value || !queryResult.value.success) {
+    const exportResult = async () => {
+      if (!queryResult.value || !queryResult.value.success || !queryResult.value.data || queryResult.value.data.length === 0) {
+        ElMessage.warning('没有可以导出的数据。');
         return;
       }
       
-      // 这里可以实现导出功能
-      ElMessage.success('结果已导出');
+      try {
+        const json = JSON.parse(JSON.stringify(queryResult.value.data));
+        console.log(json);
+        const result = await window.electronAPI.exportToExcel(json);
+        if (result.success) {
+          ElMessage.success('结果已成功导出！');
+        } else {
+          // 如果用户取消了保存，只在控制台记录，不打扰用户
+          if (result.message !== '导出已取消') {
+            ElMessage.error(result.message);
+          }
+          console.log(result.message);
+        }
+      } catch (error) {
+        console.error('导出失败:', error);
+        ElMessage.error(`导出失败: ${error.message}`);
+      }
     };
 
     const loadConnections = async () => {

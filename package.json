@@ -36,7 +36,8 @@
     "oracledb": "^6.8.0",
     "pg": "^8.16.3",
     "sqlite3": "^5.1.7",
-    "vue": "^3.3.4"
+    "vue": "^3.3.4",
+    "xlsx": "^0.18.5"
   },
   "build": {
     "appId": "com.example.db-client",

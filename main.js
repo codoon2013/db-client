@@ -1,9 +1,11 @@
-const { app, BrowserWindow, Menu, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, dialog } = require('electron');
 const path = require('path');
 const isDev = process.env.NODE_ENV === 'development';
 // 导入数据库服务
 const databaseService = require('./src/services/database');
 const connectionsSqlite = require('./src/services/connectionsSqlite');
+const xlsx = require('xlsx');
+const fs = require('fs');
 
 let mainWindow;
 
@@ -200,12 +202,16 @@ ipcMain.handle('execute-query', async (event, connectionId, query) => {
       // MySQL
       const [rows,fields] = await connection.execute(query);
       result = rows;
-      fieldMap = fields.map(field => {
-        return {
-          name:field.name,
-          type:field.type
-        }
-      });
+      if (Array.isArray(fields)) {
+        fieldMap = fields.map(field => {
+          return {
+            name:field.name,
+            type:field.type
+          }
+        });
+      } else {
+        fieldMap = [];  
+      }
       columns = rows.length > 0 ? Object.keys(rows[0]) : [];
     } else if (connection.query) {
       // PostgreSQL
@@ -246,4 +252,35 @@ ipcMain.handle('upsert-connection', async (event, conn) => {
 ipcMain.handle('delete-connection', async (event, id) => {
   await connectionsSqlite.deleteConnection(id);
   return { success: true };
+});
+
+ipcMain.handle('export-to-excel', async (event, data) => {
+  if (!data || data.length === 0) {
+    return { success: false, message: '没有数据可以导出' };
+  }
+
+  const worksheet = xlsx.utils.json_to_sheet(data);
+  const workbook = xlsx.utils.book_new();
+  xlsx.utils.book_append_sheet(workbook, worksheet, 'QueryResult');
+
+  const { filePath, canceled } = await dialog.showSaveDialog({
+    title: '导出为 Excel',
+    defaultPath: `query-result-${Date.now()}.xlsx`,
+    filters: [
+      { name: 'Excel Files', extensions: ['xlsx'] }
+    ]
+  });
+
+  if (canceled || !filePath) {
+    return { success: false, message: '导出已取消' };
+  }
+
+  try {
+    const buffer = xlsx.write(workbook, { bookType: 'xlsx', type: 'buffer' });
+    fs.writeFileSync(filePath, buffer);
+    return { success: true, message: `文件已成功保存到 ${filePath}` };
+  } catch (error) {
+    console.error('导出 Excel 失败:', error);
+    return { success: false, message: `导出失败: ${error.message}` };
+  }
 }); 

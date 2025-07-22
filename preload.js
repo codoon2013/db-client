@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   establishDatabaseConnection: (connectionConfig) => ipcRenderer.invoke('establish-database-connection', connectionConfig),
   closeDatabaseConnection: (connectionId) => ipcRenderer.invoke('close-database-connection', connectionId),
   executeQuery: (connectionId, query) => ipcRenderer.invoke('execute-query', connectionId, query),
+  exportToExcel: (data) => ipcRenderer.invoke('export-to-excel', data),
   
   // 菜单事件监听
   onMenuNew: (callback) => ipcRenderer.on('menu-new', callback),

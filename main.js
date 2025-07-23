@@ -9,7 +9,7 @@ const fs = require('fs');
 
 let mainWindow;
 
-function createWindow() {
+function createWindow () {
   // 创建浏览器窗口
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -68,7 +68,7 @@ app.on('window-all-closed', () => {
 });
 
 // 创建应用菜单
-function createMenu() {
+function createMenu () {
   const template = [
     {
       label: '文件',
@@ -148,7 +148,7 @@ ipcMain.handle('get-app-version', () => {
 });
 
 ipcMain.handle('get-app-name', () => {
-  return {success: true, message: app.getName()};
+  return { success: true, message: app.getName() };
 });
 
 // 数据库连接相关的IPC处理器
@@ -197,20 +197,20 @@ ipcMain.handle('execute-query', async (event, connectionId, query) => {
     if (!connection) {
       return { success: false, message: '连接不存在' };
     }
-    let result, columns,fieldMap;
+    let result, columns, fieldMap;
     if (connection.execute) {
       // MySQL
-      const [rows,fields] = await connection.execute(query);
+      const [rows, fields] = await connection.execute(query);
       result = rows;
       if (Array.isArray(fields)) {
         fieldMap = fields.map(field => {
           return {
-            name:field.name,
-            type:field.type
+            name: field.name,
+            type: field.type
           }
         });
       } else {
-        fieldMap = [];  
+        fieldMap = [];
       }
       columns = rows.length > 0 ? Object.keys(rows[0]) : [];
     } else if (connection.query) {
@@ -224,8 +224,8 @@ ipcMain.handle('execute-query', async (event, connectionId, query) => {
     return {
       success: true,
       data: result,
-      columns:columns,
-      fieldMap:fieldMap,
+      columns: columns,
+      fieldMap: fieldMap,
       affectedRows: result.length
     };
   } catch (error) {
@@ -283,4 +283,259 @@ ipcMain.handle('export-to-excel', async (event, data) => {
     console.error('导出 Excel 失败:', error);
     return { success: false, message: `导出失败: ${error.message}` };
   }
-}); 
+});
+
+ipcMain.handle('import-from-file', async (event, connectionId, tableName) => {
+  if (!connectionId || !tableName) {
+    return { success: false, message: '无效的连接或表名' };
+  }
+
+  // 1. Open file dialog to select the excel file
+  const { filePaths, canceled } = await dialog.showOpenDialog({
+    title: '选择要导入的 Excel 文件',
+    properties: ['openFile'],
+    filters: [
+      { name: 'Excel Files', extensions: ['xlsx'] }
+    ]
+  });
+
+  if (canceled || filePaths.length === 0) {
+    return { success: false, message: '导入已取消' };
+  }
+
+  const filePath = filePaths[0];
+
+  try {
+    // 2. Read and parse the excel file
+    const workbook = xlsx.readFile(filePath);
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    const data = xlsx.utils.sheet_to_json(worksheet);
+
+    if (data.length === 0) {
+      return { success: false, message: '文件中没有找到可导入的数据' };
+    }
+
+    // 3. Get database connection and perform insertion
+    const connection = databaseService.connections.get(connectionId);
+    if (!connection) {
+      return { success: false, message: '数据库连接不存在或已断开' };
+    }
+
+    const columns = Object.keys(data[0]);
+    const placeholders = columns.map(() => '?').join(', ');
+    const sql = `INSERT INTO ${tableName} (${columns.join(', ')}) VALUES (${placeholders})`;
+
+    // 4. Use a transaction
+    let importedRowCount = 0;
+    if (connection.execute) { // MySQL
+      await connection.beginTransaction();
+      try {
+        for (const row of data) {
+          const values = columns.map(col => row[col]);
+          const [result] = await connection.execute(sql, values);
+          importedRowCount += result.affectedRows;
+        }
+        await connection.commit();
+      } catch (e) {
+        await connection.rollback();
+        throw e; // re-throw error to be caught by outer catch
+      }
+    } else if (connection.query) { // PostgreSQL
+      await connection.query('BEGIN');
+      try {
+        for (const row of data) {
+          const values = columns.map(col => row[col]);
+          const pgSql = `INSERT INTO ${tableName} (${columns.join(', ')}) VALUES (${columns.map((_, i) => `$${i + 1}`).join(', ')})`;
+          const result = await connection.query(pgSql, values);
+          importedRowCount += result.rowCount;
+        }
+        await connection.query('COMMIT');
+      } catch (e) {
+        await connection.query('ROLLBACK');
+        throw e;
+      }
+    } else {
+      return { success: false, message: '当前数据库类型不支持导入操作' };
+    }
+
+    return { success: true, message: `成功导入 ${importedRowCount} 条记录！` };
+
+  } catch (error) {
+    console.error('导入数据失败:', error);
+    return { success: false, message: `导入失败: ${error.message}` };
+  }
+});
+
+ipcMain.handle('get-databases', async (event, connectionId) => {
+  try {
+    const connection = databaseService.connections.get(connectionId);
+    if (!connection) return [];
+    if (connection.execute) {
+      // MySQL
+      return await databaseService.getMySQLDatabases(connection);
+    } else if (connection.query) {
+      // PostgreSQL
+      return await databaseService.getPostgreSQLDatabases(connection);
+    } else {
+      // SQLite 或其他
+      return [connectionId.split('_').pop()];
+    }
+  } catch (error) {
+    return [];
+  }
+});
+
+ipcMain.handle('get-tables', async (event, connectionId, databaseName) => {
+  try {
+    const connection = databaseService.connections.get(connectionId);
+    if (!connection) return [];
+    if (connection.execute) {
+      // MySQL
+      await connection.changeUser({ database: databaseName });
+      const [rows] = await connection.execute('SHOW TABLE STATUS');
+      return rows.map(row => ({
+        name: row.Name,
+        rows: row.Rows,
+        size: `${row.Data_length || 0} B`,
+        engine: row.Engine,
+        charset: row.Collation ? row.Collation.split('_')[0] : '',
+        collation: row.Collation,
+        columns: [],
+        indexes: []
+      }));
+    } else if (connection.query) {
+      // PostgreSQL
+      const sql = `
+        SELECT tablename FROM pg_tables
+        WHERE schemaname = 'public'
+        ORDER BY tablename
+      `;
+      const result = await connection.query(sql);
+      return result.rows.map(row => ({
+        name: row.tablename,
+        rows: null,
+        size: null,
+        engine: 'PostgreSQL',
+        charset: '',
+        collation: '',
+        columns: [],
+        indexes: []
+      }));
+    } else {
+      // SQLite
+      const sql = `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name`;
+      return new Promise((resolve, reject) => {
+        connection.all(sql, (err, rows) => {
+          if (err) return resolve([]);
+          resolve(rows.map(row => ({
+            name: row.name,
+            rows: null,
+            size: null,
+            engine: 'SQLite',
+            charset: '',
+            collation: '',
+            columns: [],
+            indexes: []
+          })));
+        });
+      });
+    }
+  } catch (error) {
+    return [];
+  }
+});
+
+ipcMain.handle('get-table-structure', async (event, connectionId, databaseName, tableName) => {
+  try {
+    const connection = databaseService.connections.get(connectionId);
+    if (!connection) return { columns: [], indexes: [] };
+    // MySQL
+    if (connection.execute) {
+      await connection.changeUser({ database: databaseName });
+      // 获取字段
+      const [columns] = await connection.execute(`SHOW FULL COLUMNS FROM \`${tableName}\``.replace(/\\`/g, '`'));
+      // 获取索引
+      const [indexes] = await connection.execute(`SHOW INDEX FROM \`${tableName}\``.replace(/\\`/g, '`'));
+      return {
+        columns: columns.map(col => ({
+          name: col.Field,
+          type: col.Type,
+          length: null,
+          nullable: col.Null === 'YES',
+          default: col.Default,
+          key: col.Key,
+          comment: col.Comment
+        })),
+        indexes: indexes.map(idx => ({
+          name: idx.Key_name,
+          type: idx.Index_type,
+          columns: idx.Column_name,
+          cardinality: idx.Cardinality
+        }))
+      };
+    }
+    // PostgreSQL
+    if (connection.query) {
+      // 字段
+      const colSql = `SELECT column_name AS name, data_type AS type, is_nullable, column_default AS default, '' AS key, '' AS comment FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1`;
+      const colRes = await connection.query(colSql, [tableName]);
+      // 索引
+      const idxSql = `SELECT indexname AS name, indexdef AS type, regexp_replace(indexdef, '.*\\((.*)\\).*', '\\1') AS columns, null AS cardinality FROM pg_indexes WHERE schemaname = 'public' AND tablename = $1`;
+      const idxRes = await connection.query(idxSql, [tableName]);
+      return {
+        columns: colRes.rows.map(col => ({
+          name: col.name,
+          type: col.type,
+          length: null,
+          nullable: col.is_nullable === 'YES',
+          default: col.default,
+          key: col.key,
+          comment: col.comment
+        })),
+        indexes: idxRes.rows.map(idx => ({
+          name: idx.name,
+          type: idx.type,
+          columns: idx.columns,
+          cardinality: idx.cardinality
+        }))
+      };
+    }
+    // SQLite
+    if (connection.all) {
+      // 字段
+      const colSql = `PRAGMA table_info(\`${tableName}\`)`;
+      const columns = await new Promise((resolve, reject) => {
+        connection.all(colSql, (err, rows) => {
+          if (err) return resolve([]);
+          resolve(rows.map(col => ({
+            name: col.name,
+            type: col.type,
+            length: null,
+            nullable: !col.notnull,
+            default: col.dflt_value,
+            key: col.pk ? 'PRI' : '',
+            comment: ''
+          })));
+        });
+      });
+      // 索引
+      const idxSql = `PRAGMA index_list(\`${tableName}\`)`;
+      const indexes = await new Promise((resolve, reject) => {
+        connection.all(idxSql, (err, rows) => {
+          if (err) return resolve([]);
+          resolve(rows.map(idx => ({
+            name: idx.name,
+            type: idx.origin,
+            columns: idx.name,
+            cardinality: null
+          })));
+        });
+      });
+      return { columns, indexes };
+    }
+    return { columns: [], indexes: [] };
+  } catch (error) {
+    return { columns: [], indexes: [] };
+  }
+});

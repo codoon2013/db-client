@@ -11,6 +11,14 @@
             :value="conn.id"
           />
         </el-select>
+        <el-button
+          :type="currentConnStatus === 'connected' ? 'success' : 'info'"
+          size="small"
+          style="margin-right: 12px;"
+          @click="toggleConnectionStatus"
+        >
+          {{ currentConnStatus === 'connected' ? '已连接' : '连接' }}
+        </el-button>
         <el-select v-model="selectedDatabase" placeholder="选择数据库" style="width: 150px; margin-right: 12px;">
           <el-option
             v-for="db in availableDatabases"
@@ -21,7 +29,7 @@
         </el-select>
         <el-button type="primary" @click="refreshTables">
           <el-icon><Refresh /></el-icon>
-          刷新
+          刷新数据表
         </el-button>
       </div>
     </div>
@@ -100,14 +108,18 @@
                 <el-icon><View /></el-icon>
                 预览数据
               </el-button>
-                  <el-button size="small" @click="editTable(selectedTable)">
+                  <!-- <el-button size="small" @click="editTable(selectedTable)">
                     <el-icon><Edit /></el-icon>
                     编辑表
+                  </el-button> -->
+                  <el-button size="small" @click="importData(selectedTable)">
+                    <el-icon><Upload /></el-icon>
+                    导入数据
                   </el-button>
-                  <el-button size="small" type="danger" @click="deleteTable(selectedTable)">
+                  <!-- <el-button size="small" type="danger" @click="deleteTable(selectedTable)">
                     <el-icon><Delete /></el-icon>
                     删除表
-                  </el-button>
+                  </el-button> -->
                 </el-button-group>
               </div>
             </div>
@@ -234,207 +246,240 @@
   </div>
 </template>
 
-<script>
-import { ref, computed, onMounted } from 'vue';
+<script setup>
+import { ref, computed, onMounted, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
+import { Database, Grid, View, Edit, Upload, Delete, Refresh, Search, Download } from '@element-plus/icons-vue';
 
-export default {
-  name: 'Tables',
-  setup() {
-    const selectedConnection = ref(null);
-    const selectedDatabase = ref(null);
-    const selectedTable = ref(null);
-    const tableSearch = ref('');
-    const previewDialogVisible = ref(false);
-    const previewTable = ref(null);
-    const previewSearch = ref('');
-    const previewPage = ref(1);
-    const previewPageSize = ref(20);
-    const previewTotal = ref(0);
+const selectedConnection = ref(null);
+const selectedDatabase = ref(null);
+const selectedTable = ref(null);
+const tableSearch = ref('');
+const previewDialogVisible = ref(false);
+const previewTable = ref(null);
+const previewSearch = ref('');
+const previewPage = ref(1);
+const previewPageSize = ref(20);
+const previewTotal = ref(0);
 
-    const availableConnections = ref([
-      { id: 1, name: '本地MySQL' },
-      { id: 2, name: '测试PostgreSQL' }
-    ]);
+const availableConnections = ref([]);
+const availableDatabases = ref([]);
 
-    const availableDatabases = ref([
-      'test',
-      'mysql',
-      'information_schema',
-      'performance_schema'
-    ]);
+const tables = ref([]);
 
-    const tables = ref([
-      {
-        name: 'users',
-        rows: 1250,
-        size: '256 KB',
-        engine: 'InnoDB',
-        charset: 'utf8mb4',
-        collation: 'utf8mb4_unicode_ci',
-        columns: [
-          { name: 'id', type: 'int', length: '11', nullable: false, default: null, key: 'PRI', comment: '用户ID' },
-          { name: 'username', type: 'varchar', length: '50', nullable: false, default: null, key: 'UNI', comment: '用户名' },
-          { name: 'email', type: 'varchar', length: '100', nullable: false, default: null, key: 'MUL', comment: '邮箱' },
-          { name: 'password', type: 'varchar', length: '255', nullable: false, default: null, key: '', comment: '密码' },
-          { name: 'created_at', type: 'timestamp', length: null, nullable: false, default: 'CURRENT_TIMESTAMP', key: '', comment: '创建时间' },
-          { name: 'updated_at', type: 'timestamp', length: null, nullable: false, default: 'CURRENT_TIMESTAMP', key: '', comment: '更新时间' }
-        ],
-        indexes: [
-          { name: 'PRIMARY', type: 'BTREE', columns: 'id', cardinality: 1250 },
-          { name: 'username', type: 'BTREE', columns: 'username', cardinality: 1250 },
-          { name: 'email', type: 'BTREE', columns: 'email', cardinality: 1250 }
-        ]
-      },
-      {
-        name: 'posts',
-        rows: 3420,
-        size: '1.2 MB',
-        engine: 'InnoDB',
-        charset: 'utf8mb4',
-        collation: 'utf8mb4_unicode_ci',
-        columns: [
-          { name: 'id', type: 'int', length: '11', nullable: false, default: null, key: 'PRI', comment: '文章ID' },
-          { name: 'title', type: 'varchar', length: '200', nullable: false, default: null, key: '', comment: '标题' },
-          { name: 'content', type: 'text', length: null, nullable: true, default: null, key: '', comment: '内容' },
-          { name: 'user_id', type: 'int', length: '11', nullable: false, default: null, key: 'MUL', comment: '作者ID' },
-          { name: 'status', type: 'enum', length: "'draft','published','archived'", nullable: false, default: 'draft', key: '', comment: '状态' },
-          { name: 'created_at', type: 'timestamp', length: null, nullable: false, default: 'CURRENT_TIMESTAMP', key: '', comment: '创建时间' }
-        ],
-        indexes: [
-          { name: 'PRIMARY', type: 'BTREE', columns: 'id', cardinality: 3420 },
-          { name: 'user_id', type: 'BTREE', columns: 'user_id', cardinality: 1250 },
-          { name: 'status', type: 'BTREE', columns: 'status', cardinality: 3 }
-        ]
-      }
-    ]);
+const previewData = ref([
+  { id: 1, username: 'admin', email: 'admin@example.com', created_at: '2024-01-01 10:00:00' },
+  { id: 2, username: 'user1', email: 'user1@example.com', created_at: '2024-01-02 11:30:00' },
+  { id: 3, username: 'user2', email: 'user2@example.com', created_at: '2024-01-03 14:20:00' }
+]);
 
-    const previewData = ref([
-      { id: 1, username: 'admin', email: 'admin@example.com', created_at: '2024-01-01 10:00:00' },
-      { id: 2, username: 'user1', email: 'user1@example.com', created_at: '2024-01-02 11:30:00' },
-      { id: 3, username: 'user2', email: 'user2@example.com', created_at: '2024-01-03 14:20:00' }
-    ]);
+const previewColumns = ref(['id', 'username', 'email', 'created_at']);
 
-    const previewColumns = ref(['id', 'username', 'email', 'created_at']);
+const filteredTables = computed(() => {
+  if (!tableSearch.value) return tables.value;
+  return tables.value.filter(table => 
+    table.name.toLowerCase().includes(tableSearch.value.toLowerCase())
+  );
+});
 
-    const filteredTables = computed(() => {
-      if (!tableSearch.value) return tables.value;
-      return tables.value.filter(table => 
-        table.name.toLowerCase().includes(tableSearch.value.toLowerCase())
-      );
-    });
-
-    const selectTable = (table) => {
-      selectedTable.value = table;
+const selectTable = async (table) => {
+  selectedTable.value = table;
+  const conn = availableConnections.value.find(c => c.id === selectedConnection.value);
+  if (!conn || !conn.status === 'connected') return;
+  try {
+    const structure = await window.electronAPI.getTableStructure(conn.connectionId, selectedDatabase.value, table.name);
+    selectedTable.value = {
+      ...table,
+      columns: structure.columns || [],
+      indexes: structure.indexes || []
     };
-
-    const refreshTables = () => {
-      if (!selectedConnection.value || !selectedDatabase.value) {
-        ElMessage.warning('请先选择数据库连接和数据库');
-        return;
-      }
-      ElMessage.success('表列表已刷新');
-    };
-
-    const openPreviewTable = (table) => {
-      previewTable.value = table;
-      previewDialogVisible.value = true;
-      previewPage.value = 1;
-      previewTotal.value = table.rows;
-      loadPreviewData();
-    };
-
-    const editTable = (table) => {
-      ElMessage.info(`编辑表: ${table.name}`);
-    };
-
-    const deleteTable = async (table) => {
-      try {
-        await ElMessageBox.confirm(
-          `确定要删除表 "${table.name}" 吗？此操作不可恢复！`,
-          '警告',
-          {
-            confirmButtonText: '确定',
-            cancelButtonText: '取消',
-            type: 'warning'
-          }
-        );
-        
-        const index = tables.value.findIndex(t => t.name === table.name);
-        if (index !== -1) {
-          tables.value.splice(index, 1);
-          if (selectedTable.value?.name === table.name) {
-            selectedTable.value = null;
-          }
-          ElMessage.success('表已删除');
-        }
-      } catch {
-        // 用户取消
-      }
-    };
-
-    const loadPreviewData = () => {
-      // 模拟加载预览数据
-      previewData.value = [
-        { id: 1, username: 'admin', email: 'admin@example.com', created_at: '2024-01-01 10:00:00' },
-        { id: 2, username: 'user1', email: 'user1@example.com', created_at: '2024-01-02 11:30:00' },
-        { id: 3, username: 'user2', email: 'user2@example.com', created_at: '2024-01-03 14:20:00' }
-      ];
-    };
-
-    const refreshPreview = () => {
-      loadPreviewData();
-      ElMessage.success('预览数据已刷新');
-    };
-
-    const exportPreview = () => {
-      ElMessage.success('数据已导出');
-    };
-
-    const handlePreviewSizeChange = (size) => {
-      previewPageSize.value = size;
-      previewPage.value = 1;
-      loadPreviewData();
-    };
-
-    const handlePreviewPageChange = (page) => {
-      previewPage.value = page;
-      loadPreviewData();
-    };
-
-    onMounted(() => {
-      // 初始化组件
-    });
-
-    return {
-      selectedConnection,
-      selectedDatabase,
-      selectedTable,
-      tableSearch,
-      previewDialogVisible,
-      previewTable,
-      previewSearch,
-      previewPage,
-      previewPageSize,
-      previewTotal,
-      availableConnections,
-      availableDatabases,
-      tables,
-      previewData,
-      previewColumns,
-      filteredTables,
-      selectTable,
-      refreshTables,
-      openPreviewTable,
-      editTable,
-      deleteTable,
-      refreshPreview,
-      exportPreview,
-      handlePreviewSizeChange,
-      handlePreviewPageChange
+  } catch (error) {
+    ElMessage.error('获取表结构失败: ' + error.message);
+    selectedTable.value = {
+      ...table,
+      columns: [],
+      indexes: []
     };
   }
 };
+
+const refreshTables = async () => {
+  if (!selectedConnection.value || !selectedDatabase.value) {
+    ElMessage.warning('请先选择数据库连接和数据库');
+    return;
+  }
+  const conn = availableConnections.value.find(c => c.id === selectedConnection.value);
+  if (!conn || conn.status !== 'connected') {
+    ElMessage.error('数据库未连接，无法刷新数据表');
+    return;
+  }
+  try {
+    const tableList = await window.electronAPI.getTables(conn.connectionId, selectedDatabase.value);
+    tables.value = tableList;
+    ElMessage.success('表列表已刷新');
+  } catch (error) {
+    ElMessage.error('获取表列表失败: ' + error.message);
+  }
+};
+
+const openPreviewTable = (table) => {
+  previewTable.value = table;
+  previewDialogVisible.value = true;
+  previewPage.value = 1;
+  previewTotal.value = table.rows;
+  loadPreviewData();
+};
+
+const editTable = (table) => {
+  ElMessage.info(`编辑表: ${table.name}`);
+};
+
+const deleteTable = async (table) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除表 "${table.name}" 吗？此操作不可恢复！`,
+      '警告',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    );
+    const index = tables.value.findIndex(t => t.name === table.name);
+    if (index !== -1) {
+      tables.value.splice(index, 1);
+      if (selectedTable.value?.name === table.name) {
+        selectedTable.value = null;
+      }
+      ElMessage.success('表已删除');
+    }
+  } catch {
+    // 用户取消
+  }
+};
+
+const importData = async (table) => {
+  if (!table) {
+    ElMessage.warning('请先选择一个表以导入数据。');
+    return;
+  }
+  const conn = availableConnections.value.find(c => c.id === selectedConnection.value);
+  if (!conn || conn.status !== 'connected') {
+    ElMessage.error('数据库未连接，无法导入数据。');
+    return;
+  }
+  try {
+    const result = await window.electronAPI.importFromFile(conn.connectionId, table.name);
+    if (result.success) {
+      ElMessage.success(result.message);
+      refreshTables();
+    } else {
+      if (result.message !== '导入已取消') {
+        ElMessage.error(result.message);
+      }
+      console.log(result.message);
+    }
+  } catch (error) {
+    console.error('导入数据时发生错误:', error);
+    ElMessage.error(`导入失败: ${error.message}`);
+  }
+};
+
+const loadPreviewData = () => {
+  previewData.value = [
+    { id: 1, username: 'admin', email: 'admin@example.com', created_at: '2024-01-01 10:00:00' },
+    { id: 2, username: 'user1', email: 'user1@example.com', created_at: '2024-01-02 11:30:00' },
+    { id: 3, username: 'user2', email: 'user2@example.com', created_at: '2024-01-03 14:20:00' }
+  ];
+};
+
+const refreshPreview = () => {
+  loadPreviewData();
+  ElMessage.success('预览数据已刷新');
+};
+
+const exportPreview = () => {
+  ElMessage.success('数据已导出');
+};
+
+const handlePreviewSizeChange = (size) => {
+  previewPageSize.value = size;
+  previewPage.value = 1;
+  loadPreviewData();
+};
+
+const handlePreviewPageChange = (page) => {
+  previewPage.value = page;
+  loadPreviewData();
+};
+
+const loadConnections = async () => {
+  const saved = await window.electronAPI.getConnections();
+  saved.forEach(conn => {
+    if (!('status' in conn)) conn.status = 'disconnected';
+  });
+  availableConnections.value = saved;
+};
+
+const loadDatabases = async () => {
+  const conn = availableConnections.value.find(c => c.id === selectedConnection.value);
+  if (!conn || !conn.connectionId) {
+    availableDatabases.value = [];
+    return;
+  }
+  try {
+    const dbs = await window.electronAPI.getDatabases(conn.connectionId);
+    availableDatabases.value = dbs;
+  } catch (error) {
+    availableDatabases.value = [];
+    ElMessage.error('获取数据库列表失败: ' + error.message);
+  }
+};
+
+const currentConnStatus = computed(() => {
+  const conn = availableConnections.value.find(c => c.id === selectedConnection.value);
+  return conn?.status === 'connected' ? 'connected' : 'disconnected';
+});
+
+const toggleConnectionStatus = async () => {
+  const conn = availableConnections.value.find(c => c.id === selectedConnection.value);
+  if (!conn) return;
+  try {
+    if (conn.status === 'connected') {
+      const connectionId = `${conn.type}_${conn.host}_${conn.port}_${conn.database}`;
+      await window.electronAPI.closeDatabaseConnection(connectionId);
+      conn.status = 'disconnected';
+      ElMessage.success('连接已断开');
+    } else {
+      const plainConn = JSON.parse(JSON.stringify(conn));
+      const result = await window.electronAPI.establishDatabaseConnection(plainConn);
+      if (result.success) {
+        conn.status = 'connected';
+        conn.connectionId = result.connectionId;
+        ElMessage.success('连接成功');
+        loadDatabases();
+      } else {
+        ElMessage.error('连接失败：' + result.message);
+      }
+    }
+    // await loadConnections();
+  } catch (error) {
+    ElMessage.error('操作失败：' + error.message);
+  }
+};
+
+watch(selectedConnection, async () => {
+  selectedDatabase.value = null;
+  loadDatabases();
+});
+
+watch(selectedDatabase, () => {
+  refreshTables();
+});
+
+onMounted(() => {
+  loadConnections();
+});
 </script>
 
 <style scoped>
@@ -584,4 +629,4 @@ export default {
   margin-top: 16px;
   text-align: center;
 }
-</style> 
+</style>

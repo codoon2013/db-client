@@ -11,11 +11,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   establishDatabaseConnection: (connectionConfig) => ipcRenderer.invoke('establish-database-connection', connectionConfig),
   closeDatabaseConnection: (connectionId) => ipcRenderer.invoke('close-database-connection', connectionId),
   executeQuery: (connectionId, query) => ipcRenderer.invoke('execute-query', connectionId, query),
-  exportToExcel: (data) => ipcRenderer.invoke('export-to-excel', data),
+  exportToExcel: (data, filename) => ipcRenderer.invoke('export-to-excel', data, filename),
   importFromFile: (connectionId, tableName) => ipcRenderer.invoke('import-from-file', connectionId, tableName),
   getDatabases: (connectionId) => ipcRenderer.invoke('get-databases', connectionId),
   getTables: (connectionId, databaseName) => ipcRenderer.invoke('get-tables', connectionId, databaseName),
   getTableStructure: (connectionId, databaseName, tableName) => ipcRenderer.invoke('get-table-structure', connectionId, databaseName, tableName),
+  getTableData: (connectionId, databaseName, tableName, options) => ipcRenderer.invoke('get-table-data', connectionId, databaseName, tableName, options),
 
   // 菜单事件监听
   onMenuNew: (callback) => ipcRenderer.on('menu-new', callback),

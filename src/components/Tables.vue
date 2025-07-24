@@ -385,12 +385,43 @@ const importData = async (table) => {
   }
 };
 
-const loadPreviewData = () => {
-  previewData.value = [
-    { id: 1, username: 'admin', email: 'admin@example.com', created_at: '2024-01-01 10:00:00' },
-    { id: 2, username: 'user1', email: 'user1@example.com', created_at: '2024-01-02 11:30:00' },
-    { id: 3, username: 'user2', email: 'user2@example.com', created_at: '2024-01-03 14:20:00' }
-  ];
+const loadPreviewData = async () => {
+  const conn = availableConnections.value.find(c => c.id === selectedConnection.value);
+  if (!conn || conn.status !== 'connected' || !selectedDatabase.value || !previewTable.value) {
+    previewData.value = [];
+    previewColumns.value = [];
+    return;
+  }
+
+  try {
+    const result = await window.electronAPI.getTableData(
+      conn.connectionId,
+      selectedDatabase.value,
+      previewTable.value.name,
+      {
+        page: previewPage.value,
+        pageSize: previewPageSize.value,
+        search: previewSearch.value
+      }
+    );
+
+    if (result.success) {
+      previewData.value = result.data || [];
+      if (result.data?.length > 0) {
+        previewColumns.value = Object.keys(result.data[0]);
+      }
+      previewTotal.value = result.total || 0;
+    } else {
+      ElMessage.error('获取预览数据失败：' + result.message);
+      previewData.value = [];
+      previewColumns.value = [];
+    }
+  } catch (error) {
+    console.error('加载预览数据失败:', error);
+    ElMessage.error('加载预览数据失败：' + error.message);
+    previewData.value = [];
+    previewColumns.value = [];
+  }
 };
 
 const refreshPreview = () => {
@@ -398,8 +429,46 @@ const refreshPreview = () => {
   ElMessage.success('预览数据已刷新');
 };
 
-const exportPreview = () => {
-  ElMessage.success('数据已导出');
+// 导出预览数据
+const exportPreview = async () => {
+  const conn = availableConnections.value.find(c => c.id === selectedConnection.value);
+  if (!conn || conn.status !== 'connected' || !selectedDatabase.value || !previewTable.value) {
+    ElMessage.warning('请确保数据库已连接且已选择表');
+    return;
+  }
+
+  try {
+    // 获取所有数据（不分页）
+    const result = await window.electronAPI.getTableData(
+      conn.connectionId,
+      selectedDatabase.value,
+      previewTable.value.name,
+      {
+        page: 1,
+        pageSize: -1, // 表示获取所有数据
+        search: previewSearch.value
+      }
+    );
+
+    if (result.success && result.data) {
+      // 调用主进程导出数据
+      const exportResult = await window.electronAPI.exportToExcel(
+        result.data,
+        `${previewTable.value.name}_export_${new Date().toISOString().split('T')[0]}.xlsx`
+      );
+      
+      if (exportResult.success) {
+        ElMessage.success('数据已成功导出');
+      } else {
+        ElMessage.error('导出失败：' + exportResult.message);
+      }
+    } else {
+      ElMessage.error('获取导出数据失败');
+    }
+  } catch (error) {
+    console.error('导出数据时发生错误:', error);
+    ElMessage.error('导出失败：' + error.message);
+  }
 };
 
 const handlePreviewSizeChange = (size) => {
@@ -412,6 +481,12 @@ const handlePreviewPageChange = (page) => {
   previewPage.value = page;
   loadPreviewData();
 };
+
+// 监听搜索
+watch(previewSearch, () => {
+  previewPage.value = 1; // 重置到第一页
+  loadPreviewData();
+});
 
 const loadConnections = async () => {
   const saved = await window.electronAPI.getConnections();

@@ -254,34 +254,32 @@ ipcMain.handle('delete-connection', async (event, id) => {
   return { success: true };
 });
 
-ipcMain.handle('export-to-excel', async (event, data) => {
-  if (!data || data.length === 0) {
-    return { success: false, message: '没有数据可以导出' };
-  }
-
-  const worksheet = xlsx.utils.json_to_sheet(data);
-  const workbook = xlsx.utils.book_new();
-  xlsx.utils.book_append_sheet(workbook, worksheet, 'QueryResult');
-
-  const { filePath, canceled } = await dialog.showSaveDialog({
-    title: '导出为 Excel',
-    defaultPath: `query-result-${Date.now()}.xlsx`,
-    filters: [
-      { name: 'Excel Files', extensions: ['xlsx'] }
-    ]
-  });
-
-  if (canceled || !filePath) {
-    return { success: false, message: '导出已取消' };
-  }
-
+// 导出数据到 Excel
+ipcMain.handle('export-to-excel', async (event, data, filename) => {
   try {
-    const buffer = xlsx.write(workbook, { bookType: 'xlsx', type: 'buffer' });
-    fs.writeFileSync(filePath, buffer);
-    return { success: true, message: `文件已成功保存到 ${filePath}` };
+    const workbook = xlsx.utils.book_new();
+    const worksheet = xlsx.utils.json_to_sheet(data);
+    xlsx.utils.book_append_sheet(workbook, worksheet, 'Sheet1');
+
+    // 让用户选择保存位置
+    const { filePath, canceled } = await dialog.showSaveDialog({
+      title: '保存 Excel 文件',
+      defaultPath: filename,
+      filters: [
+        { name: 'Excel Files', extensions: ['xlsx'] }
+      ]
+    });
+
+    if (canceled || !filePath) {
+      return { success: false, message: '导出已取消' };
+    }
+
+    // 写入文件
+    xlsx.writeFile(workbook, filePath);
+    return { success: true };
   } catch (error) {
-    console.error('导出 Excel 失败:', error);
-    return { success: false, message: `导出失败: ${error.message}` };
+    console.error('导出到 Excel 失败:', error);
+    return { success: false, message: error.message };
   }
 });
 
@@ -539,3 +537,127 @@ ipcMain.handle('get-table-structure', async (event, connectionId, databaseName, 
     return { columns: [], indexes: [] };
   }
 });
+
+ipcMain.handle('get-table-data', async (event, connectionId, databaseName, tableName, options = {}) => {
+  try {
+    const connection = databaseService.connections.get(connectionId);
+    if (!connection) {
+      return { success: false, message: '数据库连接不存在或已断开' };
+    }
+
+    const page = options.page || 1;
+    const pageSize = options.pageSize || 20;
+    const search = options.search || '';
+    let data = [];
+    let total = 0;
+
+    // MySQL
+    if (connection.execute) {
+      await connection.changeUser({ database: databaseName });
+
+      // 构建查询条件
+      const whereClause = search
+        ? `WHERE CONCAT_WS('', ${await getMySQLTableColumns(connection, tableName)}) LIKE ?`
+        : '';
+
+      // 获取总数
+      const [countRows] = await connection.execute(
+        `SELECT COUNT(*) as total FROM \`${tableName}\` ${whereClause}`.replace(/\\`/g, '`'),
+        search ? [`%${search}%`] : []
+      );
+      total = countRows[0].total;
+
+      // 获取分页数据
+      const [rows] = await connection.execute(
+        `SELECT * FROM \`${tableName}\` ${whereClause} LIMIT ? OFFSET ?`.replace(/\\`/g, '`'),
+        search ? [`%${search}%`, pageSize, (page - 1) * pageSize] : [pageSize, (page - 1) * pageSize]
+      );
+      data = rows;
+    }
+    // PostgreSQL
+    else if (connection.query) {
+      // 构建查询条件
+      const whereClause = search
+        ? `WHERE CONCAT_WS('', ${await getPostgreSQLTableColumns(connection, tableName)}) ILIKE $1`
+        : '';
+
+      // 获取总数
+      const countResult = await connection.query(
+        `SELECT COUNT(*) as total FROM "${tableName}" ${whereClause}`,
+        search ? [`%${search}%`] : []
+      );
+      total = parseInt(countResult.rows[0].total);
+
+      // 获取分页数据
+      const result = await connection.query(
+        `SELECT * FROM "${tableName}" ${whereClause} LIMIT $${search ? '2' : '1'} OFFSET $${search ? '3' : '2'}`,
+        search ? [`%${search}%`, pageSize, (page - 1) * pageSize] : [pageSize, (page - 1) * pageSize]
+      );
+      data = result.rows;
+    }
+    // SQLite
+    else if (connection.all) {
+      return new Promise((resolve, reject) => {
+        // 获取总数
+        connection.get(
+          `SELECT COUNT(*) as total FROM "${tableName}"`,
+          [],
+          (err, row) => {
+            if (err) {
+              resolve({ success: false, message: err.message });
+              return;
+            }
+            total = row.total;
+
+            // 获取分页数据
+            connection.all(
+              `SELECT * FROM "${tableName}" LIMIT ? OFFSET ?`,
+              [pageSize, (page - 1) * pageSize],
+              (err, rows) => {
+                if (err) {
+                  resolve({ success: false, message: err.message });
+                  return;
+                }
+                resolve({
+                  success: true,
+                  data: rows,
+                  total
+                });
+              }
+            );
+          }
+        );
+      });
+    }
+
+    return {
+      success: true,
+      data,
+      total
+    };
+
+  } catch (error) {
+    console.error('获取表数据失败:', error);
+    return {
+      success: false,
+      message: error.message
+    };
+  }
+});
+
+// 辅助函数：获取 MySQL 表的所有列名
+async function getMySQLTableColumns (connection, tableName) {
+  const [columns] = await connection.execute(
+    `SHOW COLUMNS FROM \`${tableName}\``.replace(/\\`/g, '`')
+  );
+  return columns.map(col => `\`${col.Field}\``).join(',');
+}
+
+// 辅助函数：获取 PostgreSQL 表的所有列名
+async function getPostgreSQLTableColumns (connection, tableName) {
+  const result = await connection.query(
+    'SELECT column_name FROM information_schema.columns WHERE table_name = $1',
+    [tableName]
+  );
+  return result.rows.map(row => `"${row.column_name}"`).join(',');
+}

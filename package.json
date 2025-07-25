@@ -35,7 +35,7 @@
     "mysql2": "^3.14.2",
     "oracledb": "^6.8.0",
     "pg": "^8.16.3",
-    "sqlite3": "^5.1.7",
+    "better-sqlite3": "^9.4.3",
     "vue": "^3.3.4",
     "xlsx": "^0.18.5"
   },
@@ -48,6 +48,10 @@
     "files": [
       "dist/**/*",
       "main.js",
+      "preload.js",
+      "src/**/*",
+      "preload.js",
+      "src/**/*",
       "node_modules/**/*"
     ],
     "mac": {

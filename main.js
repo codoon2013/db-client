@@ -2,12 +2,16 @@ const { app, BrowserWindow, Menu, ipcMain, dialog } = require('electron');
 const path = require('path');
 const isDev = process.env.NODE_ENV === 'development';
 // 导入数据库服务
-const databaseService = require('./src/services/database');
-const connectionsSqlite = require('./src/services/connectionsSqlite');
+const databaseService = require(path.join(__dirname, 'src/services/database.js'));
+const connectionsSqlite = require(path.join(__dirname, 'src/services/connectionsSqlite.js'));
 const xlsx = require('xlsx');
 const fs = require('fs');
 
 let mainWindow;
+
+// 初始化 SQLite 连接存储到可写目录
+databaseFilePath = path.join(app.getPath('userData'), 'connections.sqlite');
+connectionsSqlite.init(databaseFilePath);
 
 function createWindow () {
   // 创建浏览器窗口

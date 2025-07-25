@@ -1,6 +1,6 @@
 const mysql = require('mysql2/promise');
 const { Client } = require('pg');
-const sqlite3 = require('sqlite3').verbose();
+const Database = require('better-sqlite3');
 const sql = require('mssql');
 
 class DatabaseService {
@@ -9,7 +9,7 @@ class DatabaseService {
   }
 
   // 测试数据库连接
-  async testConnection(connectionConfig) {
+  async testConnection (connectionConfig) {
     const { type } = connectionConfig;
     try {
       switch (type) {
@@ -42,7 +42,7 @@ class DatabaseService {
   }
 
   // 测试MySQL连接
-  async testMySQLConnection(config) {
+  async testMySQLConnection (config) {
     const { host, port, database, username, password, ssl } = config;
     let connection;
     try {
@@ -78,7 +78,7 @@ class DatabaseService {
   }
 
   // 测试PostgreSQL连接
-  async testPostgreSQLConnection(config) {
+  async testPostgreSQLConnection (config) {
     const { host, port, database, username, password, ssl } = config;
     const client = new Client({
       host: host || 'localhost',
@@ -112,43 +112,32 @@ class DatabaseService {
   }
 
   // 测试SQLite连接
-  async testSQLiteConnection(config) {
+  async testSQLiteConnection (config) {
     const { database } = config;
-    return new Promise((resolve) => {
-      const db = new sqlite3.Database(database, (err) => {
-        if (err) {
-          resolve({
-            success: false,
-            message: err.message || String(err),
-            version: '',
-            databases: []
-          });
-          return;
-        }
-        db.get('SELECT 1 as test', (err2) => {
-          db.close();
-          if (err2) {
-            resolve({
-              success: false,
-              message: err2.message || String(err2),
-              version: '',
-              databases: []
-            });
-            return;
-          }
-          resolve({
-            success: true,
-            message: 'SQLite连接测试成功',
-            version: 'SQLite',
-            databases: [database]
-          });
-        });
-      });
-    });
+    try {
+      const db = new Database(database);
+      // 测试连接
+      db.prepare('SELECT 1 as test').get();
+      // 关闭连接
+      db.close();
+      return {
+        success: true,
+        message: 'SQLite连接测试成功',
+        version: 'SQLite',
+        databases: [database]
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message || String(error),
+        version: '',
+        databases: []
+      };
+    }
   }
 
   // 测试SQL Server连接
-  async testSQLServerConnection(config) {
+  async testSQLServerConnection (config) {
     const { host, port, database, username, password, ssl } = config;
     const sqlConfig = {
       server: host || 'localhost',
@@ -186,7 +175,7 @@ class DatabaseService {
   }
 
   // 测试Oracle连接
-  async testOracleConnection(config) {
+  async testOracleConnection (config) {
     const { database } = config;
     try {
       return {
@@ -206,7 +195,7 @@ class DatabaseService {
   }
 
   // 获取MySQL版本信息
-  async getMySQLVersion(connection) {
+  async getMySQLVersion (connection) {
     try {
       const [rows] = await connection.execute('SELECT VERSION() as version');
       return rows[0].version;
@@ -216,7 +205,7 @@ class DatabaseService {
   }
 
   // 获取MySQL数据库列表
-  async getMySQLDatabases(connection) {
+  async getMySQLDatabases (connection) {
     try {
       const [rows] = await connection.execute('SHOW DATABASES');
       return rows.map(row => row.Database);
@@ -226,7 +215,7 @@ class DatabaseService {
   }
 
   // 获取PostgreSQL版本信息
-  async getPostgreSQLVersion(client) {
+  async getPostgreSQLVersion (client) {
     try {
       const result = await client.query('SELECT version()');
       return result.rows[0].version;
@@ -236,7 +225,7 @@ class DatabaseService {
   }
 
   // 获取PostgreSQL数据库列表
-  async getPostgreSQLDatabases(client) {
+  async getPostgreSQLDatabases (client) {
     try {
       const result = await client.query(`
         SELECT datname FROM pg_database 
@@ -250,7 +239,7 @@ class DatabaseService {
   }
 
   // 获取SQL Server版本信息
-  async getSQLServerVersion(pool) {
+  async getSQLServerVersion (pool) {
     try {
       const result = await pool.request().query('SELECT @@VERSION as version');
       return result.recordset[0].version;
@@ -260,7 +249,7 @@ class DatabaseService {
   }
 
   // 获取SQL Server数据库列表
-  async getSQLServerDatabases(pool) {
+  async getSQLServerDatabases (pool) {
     try {
       const result = await pool.request().query(`
         SELECT name FROM sys.databases 
@@ -274,9 +263,9 @@ class DatabaseService {
   }
 
   // 建立持久连接
-  async establishConnection(connectionConfig) {
+  async establishConnection (connectionConfig) {
     const connectionId = `${connectionConfig.type}_${connectionConfig.host}_${connectionConfig.port}_${connectionConfig.database}`;
-    
+
     if (this.connections.has(connectionId)) {
       return this.connections.get(connectionId);
     }
@@ -304,6 +293,9 @@ class DatabaseService {
         });
         await connection.connect();
         break;
+      case 'sqlite':
+        connection = new Database(connectionConfig.database);
+        break;
       default:
         throw new Error(`暂不支持 ${connectionConfig.type} 的持久连接`);
     }
@@ -313,7 +305,7 @@ class DatabaseService {
   }
 
   // 关闭连接
-  async closeConnection(connectionId) {
+  async closeConnection (connectionId) {
     const connection = this.connections.get(connectionId);
     if (connection) {
       if (connection.end) {
@@ -326,7 +318,7 @@ class DatabaseService {
   }
 
   // 关闭所有连接
-  async closeAllConnections() {
+  async closeAllConnections () {
     for (const [connectionId, connection] of this.connections) {
       try {
         if (connection.end) {

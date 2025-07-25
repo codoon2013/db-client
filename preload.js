@@ -12,7 +12,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   closeDatabaseConnection: (connectionId) => ipcRenderer.invoke('close-database-connection', connectionId),
   executeQuery: (connectionId, query) => ipcRenderer.invoke('execute-query', connectionId, query),
   exportToExcel: (data, filename) => ipcRenderer.invoke('export-to-excel', data, filename),
-  importFromFile: (connectionId, tableName) => ipcRenderer.invoke('import-from-file', connectionId, tableName),
+  importFromFile: (connectionId, tableName, filePath, sheetName) => ipcRenderer.invoke('import-from-file', connectionId, tableName, filePath, sheetName),
+  getSheetPreview: (filePath, sheetName) => ipcRenderer.invoke('get-sheet-preview', filePath, sheetName),
   getDatabases: (connectionId) => ipcRenderer.invoke('get-databases', connectionId),
   getTables: (connectionId, databaseName) => ipcRenderer.invoke('get-tables', connectionId, databaseName),
   getTableStructure: (connectionId, databaseName, tableName) => ipcRenderer.invoke('get-table-structure', connectionId, databaseName, tableName),
@@ -28,4 +29,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getConnections: () => ipcRenderer.invoke('get-connections'),
   upsertConnection: (conn) => ipcRenderer.invoke('upsert-connection', conn),
   deleteConnection: (id) => ipcRenderer.invoke('delete-connection', id),
+  // 文件对话框相关
+  showOpenDialog: (options) => ipcRenderer.invoke('showOpenDialog', options),
 });

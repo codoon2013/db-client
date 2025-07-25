@@ -283,25 +283,29 @@ ipcMain.handle('export-to-excel', async (event, data, filename) => {
   }
 });
 
-ipcMain.handle('import-from-file', async (event, connectionId, tableName) => {
+ipcMain.handle('import-from-file', async (event, connectionId, tableName, filePath = null, sheetName = null) => {
   if (!connectionId || !tableName) {
     return { success: false, message: '无效的连接或表名' };
   }
 
-  // 1. Open file dialog to select the excel file
-  const { filePaths, canceled } = await dialog.showOpenDialog({
-    title: '选择要导入的 Excel 文件',
-    properties: ['openFile'],
-    filters: [
-      { name: 'Excel Files', extensions: ['xlsx'] }
-    ]
-  });
+  let selectedFile = filePath;
 
-  if (canceled || filePaths.length === 0) {
-    return { success: false, message: '导入已取消' };
+  // 如果没有传入文件路径，则打开文件选择对话框（预览模式）
+  if (!selectedFile) {
+    const { filePaths, canceled } = await dialog.showOpenDialog({
+      title: '选择要导入的 Excel 文件',
+      properties: ['openFile'],
+      filters: [
+        { name: 'Excel Files', extensions: ['xlsx'] }
+      ]
+    });
+
+    if (canceled || filePaths.length === 0) {
+      return { success: false, message: '导入已取消' };
+    }
+
+    selectedFile = filePaths[0];
   }
-
-  const filePath = filePaths[0];
 
   try {
     // 2. Read and parse the excel file
@@ -661,3 +665,61 @@ async function getPostgreSQLTableColumns (connection, tableName) {
   );
   return result.rows.map(row => `"${row.column_name}"`).join(',');
 }
+
+ipcMain.handle('get-sheet-preview', async (event, filePath = null, sheetName = null) => {
+  try {
+    // 如果没有传入文件路径，打开文件选择对话框
+    if (!filePath) {
+      const { filePaths, canceled } = await dialog.showOpenDialog({
+        title: '选择要导入的 Excel 文件',
+        properties: ['openFile'],
+        filters: [
+          { name: 'Excel Files', extensions: ['xlsx'] }
+        ]
+      });
+
+      if (canceled || filePaths.length === 0) {
+        return { success: false, message: '导入已取消' };
+      }
+
+      filePath = filePaths[0];
+    }
+
+    if (!filePath) {
+      return { success: false, message: '无效的文件路径' };
+    }
+
+    const workbook = xlsx.readFile(filePath);
+    const targetSheet = sheetName || workbook.SheetNames[0];
+    if (!workbook.SheetNames.includes(targetSheet)) {
+      return { success: false, message: '未找到指定的工作表' };
+    }
+
+    const worksheet = workbook.Sheets[targetSheet];
+    const data = xlsx.utils.sheet_to_json(worksheet);
+
+    if (data.length === 0) {
+      return { success: false, message: '工作表中没有找到可导入的数据' };
+    }
+
+    return {
+      success: true,
+      preview: true,
+      data: data.slice(0, 10),
+      total: data.length,
+      columns: Object.keys(data[0]),
+      sheets: workbook.SheetNames,
+      filePath
+    };
+
+  } catch (error) {
+    console.error('获取工作表预览失败:', error);
+    return { success: false, message: error.message };
+  }
+});
+
+// 显示文件选择对话框
+ipcMain.handle('showOpenDialog', async (event, options) => {
+  const result = await dialog.showOpenDialog(options);
+  return result;
+});

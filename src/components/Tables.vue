@@ -104,10 +104,10 @@
               <span v-else>表详情</span>
               <div v-if="selectedTable" class="detail-actions">
                 <el-button-group>
-                                <el-button size="small" @click="openPreviewTable(selectedTable)">
-                <el-icon><View /></el-icon>
-                预览数据
-              </el-button>
+                    <el-button size="small" @click="openPreviewTable(selectedTable)">
+                    <el-icon><View /></el-icon>
+                        预览数据
+                    </el-button>
                   <!-- <el-button size="small" @click="editTable(selectedTable)">
                     <el-icon><Edit /></el-icon>
                     编辑表
@@ -187,9 +187,10 @@
     <!-- 数据预览对话框 -->
     <el-dialog
       v-model="previewDialogVisible"
-      :title="`${previewTable?.name} - 数据预览`"
+      :title="previewTable?.name ? `${previewTable.name} - 数据预览` : '数据预览'"
       width="80%"
       top="5vh"
+      @closed="handlePreviewDialogClose"
     >
       <div class="preview-content">
         <div class="preview-toolbar">
@@ -208,18 +209,20 @@
               <el-icon><Refresh /></el-icon>
               刷新
             </el-button>
-            <el-button size="small" @click="exportPreview">
+            <!-- <el-button size="small" @click="exportPreview">
               <el-icon><Download /></el-icon>
               导出
-            </el-button>
+            </el-button> -->
           </el-button-group>
         </div>
 
         <el-table 
+          ref="previewTable"
           :data="previewData" 
           style="width: 100%"
           max-height="400"
           border
+          table-layout="fixed"
         >
           <el-table-column
             v-for="column in previewColumns"
@@ -243,6 +246,61 @@
         </div>
       </div>
     </el-dialog>
+
+    <!-- Excel 预览对话框 -->
+    <el-dialog
+      v-model="excelPreviewVisible"
+      title="Excel 预览"
+      width="80%"
+      top="5vh"
+      destroy-on-close
+    >
+      <div class="preview-content">
+        <div class="preview-toolbar">
+          <div class="excel-info">
+            <span>文件名：{{ excelFileName }}</span>
+            <span class="excel-sheet-info">
+              <el-select v-model="selectedSheet" size="small" placeholder="选择工作表" @change="handleSheetChange">
+                <el-option
+                  v-for="sheet in sheetList"
+                  :key="sheet"
+                  :label="sheet"
+                  :value="sheet"
+                />
+              </el-select>
+              <span class="sheet-count">共 {{ sheetList.length }} 个工作表</span>
+            </span>
+          </div>
+          <el-button-group>
+            <el-button size="small" type="primary" @click="confirmImport" :loading="importing">
+              <el-icon><Check /></el-icon>
+              确认导入
+            </el-button>
+          </el-button-group>
+        </div>
+
+        <el-table 
+          ref="excelPreviewTable"
+          :data="excelPreviewData" 
+          style="width: 100%"
+          max-height="400"
+          border
+          table-layout="fixed"
+        >
+          <el-table-column
+            v-for="column in excelPreviewColumns"
+            :key="column"
+            :prop="column"
+            :label="column"
+            min-width="120"
+          />
+        </el-table>
+
+        <div class="preview-info">
+          <p>共 {{ excelTotal }} 条数据，以上显示前 10 条预览</p>
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -257,6 +315,7 @@ const selectedTable = ref(null);
 const tableSearch = ref('');
 const previewDialogVisible = ref(false);
 const previewTable = ref(null);
+const currentPreviewTable = ref(null);
 const previewSearch = ref('');
 const previewPage = ref(1);
 const previewPageSize = ref(20);
@@ -267,13 +326,21 @@ const availableDatabases = ref([]);
 
 const tables = ref([]);
 
-const previewData = ref([
-  { id: 1, username: 'admin', email: 'admin@example.com', created_at: '2024-01-01 10:00:00' },
-  { id: 2, username: 'user1', email: 'user1@example.com', created_at: '2024-01-02 11:30:00' },
-  { id: 3, username: 'user2', email: 'user2@example.com', created_at: '2024-01-03 14:20:00' }
-]);
+const previewData = ref([]);
+const previewColumns = ref([]);
+const previewTableRef = ref(null);
 
-const previewColumns = ref(['id', 'username', 'email', 'created_at']);
+
+// Excel 预览相关的响应式数据
+const excelPreviewVisible = ref(false);
+const excelFileName = ref('');
+const selectedSheet = ref('');
+const sheetList = ref([]);
+const excelPreviewData = ref([]);
+const excelPreviewColumns = ref([]);
+const excelTotal = ref(0);
+const importing = ref(false);
+const importFilePath = ref('');
 
 const filteredTables = computed(() => {
   if (!tableSearch.value) return tables.value;
@@ -323,10 +390,31 @@ const refreshTables = async () => {
 };
 
 const openPreviewTable = (table) => {
-  previewTable.value = table;
-  previewDialogVisible.value = true;
+  if (!table || !table.name) {
+    ElMessage.error('无效的表信息');
+    return;
+  }
+  
+  console.log('===============================');
+  console.log('开始打开预览表');
+  console.log('当前表:', table.name);
+  
+  // 先复制表数据，避免后续操作影响原始数据
+  const tableData = { ...table };
+  console.log('表数据副本:', tableData.name);
+  
+  // 设置状态
   previewPage.value = 1;
-  previewTotal.value = table.rows;
+  previewTotal.value = tableData.rows || 0;
+  previewTable.value = tableData;
+  
+  // 显示对话框
+  previewDialogVisible.value = true;
+  
+  // 确认预览表设置成功
+  console.log('预览表设置后:', previewTable.value?.name);
+  
+  // 加载数据
   loadPreviewData();
 };
 
@@ -363,21 +451,50 @@ const importData = async (table) => {
     ElMessage.warning('请先选择一个表以导入数据。');
     return;
   }
+
+  
   const conn = availableConnections.value.find(c => c.id === selectedConnection.value);
   if (!conn || conn.status !== 'connected') {
     ElMessage.error('数据库未连接，无法导入数据。');
     return;
   }
+
   try {
-    const result = await window.electronAPI.importFromFile(conn.connectionId, table.name);
-    if (result.success) {
-      ElMessage.success(result.message);
+    // 第一步：选择文件
+    const result = await window.electronAPI.showOpenDialog({
+      title: '选择 Excel 文件',
+      filters: [
+        { name: 'Excel 文件', extensions: ['xlsx', 'xls'] }
+      ],
+      properties: ['openFile']
+    });
+
+    if (result.canceled || !result.filePaths?.length) {
+      return; // 用户取消选择
+    }
+
+    const filePath = result.filePaths[0];
+
+    // 第二步：获取预览数据
+    const preview = await window.electronAPI.getSheetPreview(filePath, null);
+    if (preview.success) {
+      // 显示 Excel 预览
+      excelPreviewData.value = preview.data;
+      excelPreviewColumns.value = preview.columns;
+      excelTotal.value = preview.total;
+      // 使用正则表达式同时处理 Windows 和 Unix 风格的路径
+      excelFileName.value = filePath.replace(/^.*[/\\]/, '');
+      importFilePath.value = filePath;
+      sheetList.value = preview.sheets || ['Sheet1'];
+      selectedSheet.value = preview.sheets?.[0] || 'Sheet1';
+      excelPreviewVisible.value = true;
+    } else if (!preview.preview && preview.success) {
+      ElMessage.success(preview.message);
       refreshTables();
     } else {
-      if (result.message !== '导入已取消') {
-        ElMessage.error(result.message);
+      if (preview.message !== '导入已取消') {
+        ElMessage.error(preview.message);
       }
-      console.log(result.message);
     }
   } catch (error) {
     console.error('导入数据时发生错误:', error);
@@ -385,9 +502,74 @@ const importData = async (table) => {
   }
 };
 
-const loadPreviewData = async () => {
+// 处理工作表切换
+const handleSheetChange = async (sheetName) => {
+  try {
+    const preview = await window.electronAPI.getSheetPreview(importFilePath.value, sheetName);
+    if (preview.success) {
+      excelPreviewData.value = preview.data;
+      excelPreviewColumns.value = preview.columns;
+      excelTotal.value = preview.total;
+    } else {
+      ElMessage.error('加载工作表失败：' + preview.message);
+    }
+  } catch (error) {
+    console.error('切换工作表失败:', error);
+    ElMessage.error('切换工作表失败：' + error.message);
+  }
+};
+
+// 确认导入
+const confirmImport = async () => {
+  if (!importFilePath.value) {
+    ElMessage.error('没有找到要导入的文件');
+    return;
+  }
+
   const conn = availableConnections.value.find(c => c.id === selectedConnection.value);
-  if (!conn || conn.status !== 'connected' || !selectedDatabase.value || !previewTable.value) {
+  if (!conn || !conn.status === 'connected' || !selectedTable.value) {
+    ElMessage.error('连接状态异常，请重试');
+    return;
+  }
+
+  importing.value = true;
+  try {
+    const result = await window.electronAPI.importFromFile(
+      conn.connectionId,
+      selectedTable.value.name,
+      importFilePath.value,
+      selectedSheet.value
+    );
+
+    if (result.success) {
+      excelPreviewVisible.value = false;
+      ElMessage.success(result.message);
+      refreshTables();
+    } else {
+      ElMessage.error(result.message);
+    }
+  } catch (error) {
+    console.error('导入数据时发生错误:', error);
+    ElMessage.error(`导入失败: ${error.message}`);
+  } finally {
+    importing.value = false;
+  }
+};
+
+const loadPreviewData = async () => {
+  // 在函数开始时就创建预览表的深拷贝
+  if (previewTable.value && previewTable.value.name) {
+      currentPreviewTable.value = previewTable.value.name;
+  }
+  
+  // 确保有效的预览表和对话框打开状态
+  if (!previewDialogVisible.value || !currentPreviewTable.value) {
+    console.log('对话框未打开或预览表无效，终止加载');
+    return;
+  }
+
+  const conn = availableConnections.value.find(c => c.id === selectedConnection.value);
+  if (!conn || conn.status !== 'connected' || !selectedDatabase.value) {
     previewData.value = [];
     previewColumns.value = [];
     return;
@@ -397,7 +579,7 @@ const loadPreviewData = async () => {
     const result = await window.electronAPI.getTableData(
       conn.connectionId,
       selectedDatabase.value,
-      previewTable.value.name,
+      currentPreviewTable.value,
       {
         page: previewPage.value,
         pageSize: previewPageSize.value,
@@ -406,6 +588,10 @@ const loadPreviewData = async () => {
     );
 
     if (result.success) {
+      // 再次检查对话框是否仍然打开
+      if (!previewDialogVisible.value) {
+        return;
+      }
       previewData.value = result.data || [];
       if (result.data?.length > 0) {
         previewColumns.value = Object.keys(result.data[0]);
@@ -417,11 +603,11 @@ const loadPreviewData = async () => {
       previewColumns.value = [];
     }
   } catch (error) {
-    console.error('加载预览数据失败:', error);
     ElMessage.error('加载预览数据失败：' + error.message);
     previewData.value = [];
     previewColumns.value = [];
   }
+  
 };
 
 const refreshPreview = () => {
@@ -484,8 +670,10 @@ const handlePreviewPageChange = (page) => {
 
 // 监听搜索
 watch(previewSearch, () => {
-  previewPage.value = 1; // 重置到第一页
-  loadPreviewData();
+  if (previewDialogVisible.value) {
+    previewPage.value = 1; // 重置到第一页
+    loadPreviewData();
+  }
 });
 
 const loadConnections = async () => {
@@ -519,12 +707,20 @@ const currentConnStatus = computed(() => {
 const toggleConnectionStatus = async () => {
   const conn = availableConnections.value.find(c => c.id === selectedConnection.value);
   if (!conn) return;
+  
+  // 记录当前预览状态
+  // const currentPreviewTable = previewTable.value;
   try {
     if (conn.status === 'connected') {
       const connectionId = `${conn.type}_${conn.host}_${conn.port}_${conn.database}`;
       await window.electronAPI.closeDatabaseConnection(connectionId);
       conn.status = 'disconnected';
       ElMessage.success('连接已断开');
+      // 清理预览和选中状态
+      previewDialogVisible.value = false;
+      previewTable.value = null;
+      selectedTable.value = null;
+      console.log('连接已断开，清理预览状态');
     } else {
       const plainConn = JSON.parse(JSON.stringify(conn));
       const result = await window.electronAPI.establishDatabaseConnection(plainConn);
@@ -555,6 +751,19 @@ watch(selectedDatabase, () => {
 onMounted(() => {
   loadConnections();
 });
+
+const handlePreviewDialogClose = () => {
+  console.log('对话框关闭前的预览表:', previewTable.value?.name);
+  // 只清理数据和分页相关的状态，保留预览表的引用
+  previewData.value = [];
+  previewColumns.value = [];
+  previewPage.value = 1;
+  previewSearch.value = '';
+  // 不清除 previewTable，保持引用
+  console.log('对话框关闭后的预览表:', previewTable.value?.name);
+};
+// Excel 预览相关的响应式数据
+// ...existing code...
 </script>
 
 <style scoped>
@@ -702,6 +911,31 @@ onMounted(() => {
 
 .preview-pagination {
   margin-top: 16px;
+  text-align: center;
+}
+
+.excel-info {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  color: #606266;
+}
+
+.excel-sheet-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sheet-count {
+  color: #909399;
+  font-size: 13px;
+}
+
+.preview-info {
+  margin-top: 16px;
+  color: #909399;
+  font-size: 13px;
   text-align: center;
 }
 </style>

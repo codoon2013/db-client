@@ -155,7 +155,8 @@
 <script setup>
     import { ref, reactive, onMounted, computed, watch } from 'vue';
     import { ElMessage } from 'element-plus';
-    import { editor as MonacoEditor } from 'monaco-editor';  
+    // import { editor as MonacoEditor } from 'monaco-editor';  
+    import * as MonacoEditor from 'monaco-editor';
 
     const selectedConnection = ref(null);
     const sqlQuery = ref('select * from user limit 10');
@@ -174,6 +175,9 @@
     });
 
     let monacoInstance = null;
+    let completionProvider = null;
+    // 存储表名和字段信息
+    const tableInfo = ref({});
 
     const startResize = (e) => {
       const startY = e.clientY;
@@ -196,10 +200,298 @@
       window.addEventListener('mouseup', onMouseUp);
     };
 
+
+    // 注册自动补全提供者
+    const registerCompletionProvider = () => {
+      // 如果已经注册过，先移除旧的提供者
+      if (completionProvider) {
+        completionProvider.dispose();
+        completionProvider = null;
+      }
+      
+      // 注册补全项提供者
+      completionProvider = MonacoEditor.languages.registerCompletionItemProvider('sql', {
+        triggerCharacters: ['.', ' ', ','], // 触发补全的字符
+        provideCompletionItems: (model, position) => {
+          const word = model.getWordUntilPosition(position);
+          const range = {
+            startLineNumber: position.lineNumber,
+            endLineNumber: position.lineNumber,
+            startColumn: word.startColumn,
+            endColumn: word.endColumn
+          };
+
+          // 获取当前行文本
+          const lineContent = model.getLineContent(position.lineNumber);
+          const beforeCursor = lineContent.substring(0, position.column - 1);
+          
+          // 获取当前数据库中的所有表和字段
+          const suggestions = [];
+          
+          // 根据上下文决定提供哪种类型的建议
+          const uppercaseBeforeCursor = beforeCursor.toUpperCase();
+          
+          // 如果光标前有表名和点，推荐该表的字段
+          const tableFieldMatch = beforeCursor.match(/(\w+)\.(\w*)$/);
+          if (tableFieldMatch) {
+            const tableName = tableFieldMatch[1];
+            const columns = tableInfo.value[tableName];
+            if (columns && Array.isArray(columns)) {
+              columns.forEach(column => {
+                suggestions.push({
+                  label: column,
+                  kind: MonacoEditor.languages.CompletionItemKind.Field,
+                  insertText: column,
+                  detail: `Column in ${tableName}`,
+                  range: {
+                    startLineNumber: position.lineNumber,
+                    endLineNumber: position.lineNumber,
+                    startColumn: position.column - tableFieldMatch[2].length,
+                    endColumn: position.column
+                  }
+                });
+              });
+            }
+            return { suggestions };
+          }
+          
+          // 如果在 SELECT 和 FROM 之间，优先推荐字段
+          if (isInSelectClause(uppercaseBeforeCursor)) {
+            // 推荐常用函数
+            const functions = [
+              { label: 'COUNT(*)', insertText: 'COUNT(*)', detail: 'Count all rows' },
+              { label: 'COUNT', insertText: 'COUNT()', detail: 'Count rows' },
+              { label: 'SUM', insertText: 'SUM()', detail: 'Sum values' },
+              { label: 'AVG', insertText: 'AVG()', detail: 'Average value' },
+              { label: 'MAX', insertText: 'MAX()', detail: 'Maximum value' },
+              { label: 'MIN', insertText: 'MIN()', detail: 'Minimum value' }
+            ];
+            
+            functions.forEach(func => {
+              suggestions.push({
+                label: func.label,
+                kind: MonacoEditor.languages.CompletionItemKind.Function,
+                insertText: func.insertText,
+                detail: func.detail,
+                range: range
+              });
+            });
+            
+            // 推荐所有字段（带表前缀和不带表前缀）
+            Object.keys(tableInfo.value).forEach(tableName => {
+              const columns = tableInfo.value[tableName];
+              if (columns && Array.isArray(columns)) {
+                columns.forEach(column => {
+                  // 带表前缀的字段
+                  suggestions.push({
+                    label: `${tableName}.${column}`,
+                    kind: MonacoEditor.languages.CompletionItemKind.Field,
+                    insertText: `${tableName}.${column}`,
+                    detail: `Column in ${tableName}`,
+                    range: range
+                  });
+                  
+                  // 不带表前缀的字段
+                  suggestions.push({
+                    label: column,
+                    kind: MonacoEditor.languages.CompletionItemKind.Field,
+                    insertText: column,
+                    detail: `Column in ${tableName}`,
+                    range: range
+                  });
+                });
+              }
+            });
+            
+            // 添加别名关键字
+            suggestions.push({
+              label: 'AS',
+              kind: MonacoEditor.languages.CompletionItemKind.Keyword,
+              insertText: 'AS ',
+              detail: 'Alias keyword',
+              range: range
+            });
+            
+            return { suggestions };
+          }
+          
+          // 如果在 FROM 之后，推荐表名
+          else if (isInFromClause(uppercaseBeforeCursor)) {
+            // 添加表名建议
+            Object.keys(tableInfo.value).forEach(tableName => {
+              suggestions.push({
+                label: tableName,
+                kind: MonacoEditor.languages.CompletionItemKind.Class,
+                insertText: tableName,
+                detail: 'Table',
+                range: range
+              });
+              
+              // 添加别名关键字
+              suggestions.push({
+                label: 'AS',
+                kind: MonacoEditor.languages.CompletionItemKind.Keyword,
+                insertText: 'AS ',
+                detail: 'Alias keyword',
+                range: range
+              });
+            });
+            
+            return { suggestions };
+          }
+          
+          // 如果在 WHERE 之后，推荐字段和操作符
+          else if (isInWhereClause(uppercaseBeforeCursor)) {
+            // 推荐所有字段（带表前缀和不带表前缀）
+            Object.keys(tableInfo.value).forEach(tableName => {
+              const columns = tableInfo.value[tableName];
+              if (columns && Array.isArray(columns)) {
+                columns.forEach(column => {
+                  // 带表前缀的字段
+                  suggestions.push({
+                    label: `${tableName}.${column}`,
+                    kind: MonacoEditor.languages.CompletionItemKind.Field,
+                    insertText: `${tableName}.${column}`,
+                    detail: `Column in ${tableName}`,
+                    range: range
+                  });
+                  
+                  // 不带表前缀的字段
+                  suggestions.push({
+                    label: column,
+                    kind: MonacoEditor.languages.CompletionItemKind.Field,
+                    insertText: column,
+                    detail: `Column in ${tableName}`,
+                    range: range
+                  });
+                });
+              }
+            });
+            
+            // 添加操作符
+            const operators = ['=', '!=', '<>', '<', '>', '<=', '>=', 'LIKE', 'IN', 'IS NULL', 'IS NOT NULL'];
+            operators.forEach(op => {
+              suggestions.push({
+                label: op,
+                kind: MonacoEditor.languages.CompletionItemKind.Operator,
+                insertText: op + ' ',
+                detail: 'Operator',
+                range: range
+              });
+            });
+            
+            return { suggestions };
+          }
+          
+          // 默认情况下，提供基础建议
+          else {
+            // 添加常用关键字建议
+            const commonKeywords = [
+              'SELECT', 'FROM', 'WHERE', 'INSERT', 'UPDATE', 'DELETE',
+              'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'ON',
+              'GROUP BY', 'ORDER BY', 'HAVING', 'LIMIT'
+            ];
+            
+            commonKeywords.forEach(keyword => {
+              suggestions.push({
+                label: keyword,
+                kind: MonacoEditor.languages.CompletionItemKind.Keyword,
+                insertText: keyword + ' ',
+                detail: 'Keyword',
+                range: range
+              });
+            });
+            
+            // 添加表名建议
+            Object.keys(tableInfo.value).forEach(tableName => {
+              suggestions.push({
+                label: tableName,
+                kind: MonacoEditor.languages.CompletionItemKind.Class,
+                insertText: tableName,
+                detail: 'Table',
+                range: range
+              });
+            });
+          }
+
+          return { suggestions };
+        }
+      });
+    };
+    
+    // 辅助函数：判断是否在SELECT子句中
+    const isInSelectClause = (text) => {
+      const lastSelect = text.lastIndexOf('SELECT');
+      const lastFrom = text.lastIndexOf('FROM');
+      return lastSelect !== -1 && (lastFrom === -1 || lastSelect > lastFrom);
+    };
+    
+    // 辅助函数：判断是否在FROM子句中
+    const isInFromClause = (text) => {
+      const lastFrom = text.lastIndexOf('FROM');
+      const lastWhere = text.lastIndexOf('WHERE');
+      const lastGroupBy = text.lastIndexOf('GROUP BY');
+      const lastOrderBy = text.lastIndexOf('ORDER BY');
+      
+      return lastFrom !== -1 && 
+             (lastWhere === -1 || lastFrom > lastWhere) &&
+             (lastGroupBy === -1 || lastFrom > lastGroupBy) &&
+             (lastOrderBy === -1 || lastFrom > lastOrderBy);
+    };
+    
+    // 辅助函数：判断是否在WHERE子句中
+    const isInWhereClause = (text) => {
+      const lastWhere = text.lastIndexOf('WHERE');
+      const lastOrderBy = text.lastIndexOf('ORDER BY');
+      const lastGroupBy = text.lastIndexOf('GROUP BY');
+      
+      return lastWhere !== -1 && 
+             (lastOrderBy === -1 || lastWhere > lastOrderBy) &&
+             (lastGroupBy === -1 || lastWhere > lastGroupBy);
+    };
+
+  
+
+    // 获取表结构信息
+    const loadTableStructure = async (connectionId, databaseName) => {
+      if (!connectionId || !databaseName) return;
+      
+      try {
+        // 清空之前的表信息
+        tableInfo.value = {};
+        
+        // 获取所有表
+        const tablesResult = await window.electronAPI.getTables(connectionId, databaseName);
+        if (tablesResult && tablesResult.length > 0) {
+          // 获取每个表的字段信息
+          for (const table of tablesResult) {
+            // 处理不同数据库返回的表结构差异
+            const tableName = table.name || table;
+            
+            const structureResult = await window.electronAPI.getTableStructure(
+              connectionId, 
+              databaseName, 
+              tableName
+            );
+            
+            if (structureResult && structureResult.columns) {
+              // 保存字段名列表
+              tableInfo.value[tableName] = structureResult.columns.map(col => col.name);
+            }
+          }
+          
+          // 重新注册自动补全提供者以更新建议项
+          registerCompletionProvider();
+        }
+      } catch (error) {
+        console.error('加载表结构失败:', error);
+      }
+    };
+
     onMounted(() => {
       const dom = document.getElementById('editor');
       if (dom) {
-        monacoInstance = MonacoEditor.create(dom, {
+        monacoInstance = MonacoEditor.editor.create(dom, {
           value: sqlQuery.value,
           language: 'sql',
           theme: 'vs-dark',
@@ -214,6 +506,10 @@
         monacoInstance.onDidChangeModelContent(() => {
           sqlQuery.value = monacoInstance.getValue();
         });
+
+
+        registerCompletionProvider();
+
       }
     });
 
@@ -241,6 +537,7 @@
             conn.status = 'connected';
             conn.connectionId = result.connectionId;
             ElMessage.success('连接成功');
+            loadTableStructure(conn.connectionId, conn.database);
           } else {
             ElMessage.error('连接失败：' + result.message);
           }

@@ -287,6 +287,103 @@ ipcMain.handle('export-to-excel', async (event, data, filename) => {
   }
 });
 
+// 导出数据到 CSV
+ipcMain.handle('export-to-csv', async (event, data) => {
+  try {
+    const { data: exportData, columns } = data;
+    const worksheet = xlsx.utils.json_to_sheet(exportData);
+    const csv = xlsx.utils.sheet_to_csv(worksheet);
+
+    // 让用户选择保存位置
+    const { filePath, canceled } = await dialog.showSaveDialog({
+      title: '保存 CSV 文件',
+      defaultPath: 'export.csv',
+      filters: [
+        { name: 'CSV Files', extensions: ['csv'] }
+      ]
+    });
+
+    if (canceled || !filePath) {
+      return { success: false, message: '导出已取消' };
+    }
+
+    // 写入文件
+    fs.writeFileSync(filePath, csv, 'utf8');
+    return { success: true };
+  } catch (error) {
+    console.error('导出到 CSV 失败:', error);
+    return { success: false, message: error.message };
+  }
+});
+
+ipcMain.handle('export-to-sql', async (event, data) => {
+  try {
+    const { data: exportData, columns } = data;
+
+    // 生成简单的 INSERT 语句
+    let sql = "-- Exported SQL Data\n\n";
+
+    if (exportData.length > 0) {
+      // 获取表名（这里使用默认名称，实际应用中可能需要用户提供）
+      const tableName = 'exported_table';
+
+      // 生成 CREATE TABLE 语句（简化版）
+      sql += `-- Table structure for ${tableName}\n`;
+      sql += `CREATE TABLE IF NOT EXISTS ${tableName} (\n`;
+      sql += "  id INTEGER PRIMARY KEY AUTOINCREMENT,\n";
+
+      // 添加字段定义（简化处理，都作为 TEXT 类型）
+      columns.forEach((column, index) => {
+        sql += `  ${column} TEXT`;
+        if (index < columns.length - 1) {
+          sql += ",";
+        }
+        sql += "\n";
+      });
+
+      sql += ");\n\n";
+
+      // 生成 INSERT 语句
+      sql += `-- Data for ${tableName}\n`;
+      exportData.forEach(row => {
+        let values = columns.map(column => {
+          const value = row[column];
+          if (value === null || value === undefined) {
+            return 'NULL';
+          } else if (typeof value === 'string') {
+            // 转义单引号
+            return `'${value.replace(/'/g, "''")}'`;
+          } else {
+            return `'${value}'`;
+          }
+        });
+
+        sql += `INSERT INTO ${tableName} (${columns.join(', ')}) VALUES (${values.join(', ')});\n`;
+      });
+    }
+
+    // 让用户选择保存位置
+    const { filePath, canceled } = await dialog.showSaveDialog({
+      title: '保存 SQL 文件',
+      defaultPath: 'export.sql',
+      filters: [
+        { name: 'SQL Files', extensions: ['sql'] }
+      ]
+    });
+
+    if (canceled || !filePath) {
+      return { success: false, message: '导出已取消' };
+    }
+
+    // 写入文件
+    fs.writeFileSync(filePath, sql, 'utf8');
+    return { success: true };
+  } catch (error) {
+    console.error('导出到 SQL 失败:', error);
+    return { success: false, message: error.message };
+  }
+});
+
 ipcMain.handle('import-from-file', async (event, connectionId, tableName, filePath = null, sheetName = null) => {
   if (!connectionId || !tableName) {
     return { success: false, message: '无效的连接或表名' };

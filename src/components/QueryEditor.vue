@@ -71,10 +71,20 @@
                 <el-tag v-if="queryResult" :type="queryResult.success ? 'success' : 'danger'">
                   {{ queryResult.success ? '执行成功' : '执行失败' }}
                 </el-tag>
-                <el-button type="text" @click="exportResult" :disabled="!queryResult || !queryResult.success">
-                  <el-icon><Upload /></el-icon>
-                  导出
-                </el-button>
+                <el-button-group>
+                  <el-button type="primary" @click="exportToExcel" :disabled="!queryResult || !queryResult.success">
+                    <el-icon><Upload /></el-icon>
+                    导出Excel
+                  </el-button>
+                  <el-button type="primary" @click="exportToCSV" :disabled="!queryResult || !queryResult.success">
+                    <el-icon><Upload /></el-icon>
+                    导出CSV
+                  </el-button>
+                  <el-button type="primary" @click="exportToSQL" :disabled="!queryResult || !queryResult.success">
+                    <el-icon><Upload /></el-icon>
+                    导出SQL
+                  </el-button>
+                </el-button-group>
               </div>
             </div>
           </template>
@@ -673,7 +683,7 @@
       saveDialogVisible.value = false;
     };
 
-    const exportResult = async () => {
+    const exportToExcel = async () => {
       if (!queryResult.value || !queryResult.value.success || !queryResult.value.data || queryResult.value.data.length === 0) {
         ElMessage.warning('没有可以导出的数据。');
         return;
@@ -681,7 +691,6 @@
       
       try {
         const json = JSON.parse(JSON.stringify(queryResult.value.data));
-        console.log(json);
         const result = await window.electronAPI.exportToExcel(json);
         if (result.success) {
           ElMessage.success('结果已成功导出！');
@@ -695,6 +704,56 @@
       } catch (error) {
         console.error('导出失败:', error);
         ElMessage.error(`导出失败: ${error.message}`);
+      }
+    };
+
+
+    
+    const exportToCSV = async () => {
+      if (!queryResult.value || !queryResult.value.success || !queryResult.value.data || queryResult.value.data.length === 0) {
+        ElMessage.warning('没有可以导出的数据。');
+        return;
+      }
+      
+      try {
+        const data = JSON.parse(JSON.stringify(queryResult.value.data));
+        const columns = JSON.parse(JSON.stringify(queryResult.value.columns));
+        const result = await window.electronAPI.exportToCSV({ data, columns });
+        if (result.success) {
+          ElMessage.success('结果已成功导出为CSV！');
+        } else {
+          if (result.message !== '导出已取消') {
+            ElMessage.error(result.message);
+          }
+          console.log(result.message);
+        }
+      } catch (error) {
+        console.error('导出CSV失败:', error);
+        ElMessage.error(`导出CSV失败: ${error.message}`);
+      }
+    };
+
+    const exportToSQL = async () => {
+      if (!queryResult.value || !queryResult.value.success || !queryResult.value.data || queryResult.value.data.length === 0) {
+        ElMessage.warning('没有可以导出的数据。');
+        return;
+      }
+      
+      try {
+        const data = JSON.parse(JSON.stringify(queryResult.value.data));
+        const columns = JSON.parse(JSON.stringify(queryResult.value.columns));
+        const result = await window.electronAPI.exportToSQL({ data, columns });
+        if (result.success) {
+          ElMessage.success('结果已成功导出为SQL！');
+        } else {
+          if (result.message !== '导出已取消') {
+            ElMessage.error(result.message);
+          }
+          console.log(result.message);
+        }
+      } catch (error) {
+        console.error('导出SQL失败:', error);
+        ElMessage.error(`导出SQL失败: ${error.message}`);
       }
     };
 

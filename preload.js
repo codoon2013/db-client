@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   closeDatabaseConnection: (connectionId) => ipcRenderer.invoke('close-database-connection', connectionId),
   executeQuery: (connectionId, query) => ipcRenderer.invoke('execute-query', connectionId, query),
   exportToExcel: (data, filename) => ipcRenderer.invoke('export-to-excel', data, filename),
+  exportToCSV: (data) => ipcRenderer.invoke('export-to-csv', data),
+  exportToSQL: (data) => ipcRenderer.invoke('export-to-sql', data),
   importFromFile: (connectionId, tableName, filePath, sheetName) => ipcRenderer.invoke('import-from-file', connectionId, tableName, filePath, sheetName),
   getSheetPreview: (filePath, sheetName) => ipcRenderer.invoke('get-sheet-preview', filePath, sheetName),
   getDatabases: (connectionId) => ipcRenderer.invoke('get-databases', connectionId),

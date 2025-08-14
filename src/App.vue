@@ -28,7 +28,7 @@
           >
             <el-menu-item index="dashboard">
               <el-icon><Monitor /></el-icon>
-              <span>仪表板</span>
+              <span>数据仪表盘</span>
             </el-menu-item>
             <el-menu-item index="connections">
               <el-icon><Connection /></el-icon>
@@ -40,11 +40,7 @@
             </el-menu-item>
             <el-menu-item index="tables">
               <el-icon><Grid /></el-icon>
-              <span>数据表</span>
-            </el-menu-item>
-            <el-menu-item index="settings">
-              <el-icon><Setting /></el-icon>
-              <span>设置</span>
+              <span>数据表管理</span>
             </el-menu-item>
           </el-menu>
         </el-aside>

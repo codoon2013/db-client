@@ -20,7 +20,7 @@
         </div>
       </template>
 
-      <el-table :data="connections" style="width: 100%">
+      <el-table :data="connections" style="width: 100%;margin: 0 0 20px 0" border>;">
         <el-table-column prop="name" label="连接名称" width="200">
           <template #default="{ row }">
             <div class="connection-name">
@@ -34,7 +34,7 @@
             <el-tag :type="getDatabaseTypeColor(row.type)">{{ row.type }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="host" label="主机地址" width="150" />
+        <!-- <el-table-column prop="host" label="主机地址" width="150" /> -->
         <el-table-column prop="port" label="端口" width="80" />
         <el-table-column prop="database" label="数据库" width="120" />
         <el-table-column prop="status" label="状态" width="100">
@@ -44,8 +44,8 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="200">
-          <template #default="{ row }">
+        <el-table-column label="操作"  class-name="operation">
+          <template #default="{ row }" >
             <el-button-group>
               <el-button 
                 :type="row.status === 'connected' ? 'warning' : 'success'" 
@@ -420,5 +420,20 @@ export default {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
+}
+
+/* 让 el-button-group 居中 */
+:deep(.el-table__body-wrapper .el-table__cell.operation) {
+  text-align: center;
+}
+
+:deep(.el-table__body-wrapper .el-table__cell.operation .cell) {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+:deep(.operation .cell) {
+  text-align: center;
 }
 </style> 

@@ -49,8 +49,12 @@
                   <el-icon><Delete /></el-icon>
                   清空
                 </el-button>
-                <el-button @click="saveQuery">
-                  <el-icon><Download /></el-icon>
+                <el-button @click="loadSQLFile">
+                  <el-icon><Upload /></el-icon>
+                  加载
+                </el-button>
+                <el-button @click="saveSQLFile">
+                  <el-icon><Folder /></el-icon>
                   保存
                 </el-button>
               </el-button-group>
@@ -662,15 +666,58 @@
     };
 
 
-    const saveQuery = () => {
-      if (!sqlQuery.value.trim()) {
-        ElMessage.warning('请先输入SQL查询语句');
-        return;
+    // 加载SQL文件
+    const loadSQLFile = async () => {
+      try {
+        const result = await window.electronAPI.showOpenDialog({
+          properties: ['openFile'],
+          filters: [
+            { name: 'SQL Files', extensions: ['sql'] },
+            { name: 'All Files', extensions: ['*'] }
+          ]
+        });
+        
+        if (!result.canceled && result.filePaths.length > 0) {
+          const filePath = result.filePaths[0];
+          const fileContent = await window.electronAPI.loadSQLFile(filePath);
+          if (monacoInstance) {
+            monacoInstance.setValue(fileContent);
+          } else {
+            sqlQuery.value = fileContent;
+          }
+          ElMessage.success('SQL文件加载成功');
+        }
+      } catch (error) {
+        ElMessage.error('加载SQL文件失败: ' + error.message);
       }
-      saveForm.name = '';
-      saveForm.description = '';
-      saveDialogVisible.value = true;
     };
+
+    // 保存SQL文件
+    const saveSQLFile = async () => {
+      try {
+        const content = monacoInstance ? monacoInstance.getValue() : sqlQuery.value;
+        if (!content.trim()) {
+          ElMessage.warning('没有内容可保存');
+          return;
+        }
+        
+        const result = await window.electronAPI.showSaveDialog({
+          filters: [
+            { name: 'SQL Files', extensions: ['sql'] },
+            { name: 'All Files', extensions: ['*'] }
+          ]
+        });
+        
+        if (!result.canceled) {
+          const filePath = result.filePath;
+          await window.electronAPI.saveSQLFile(filePath, content);
+          ElMessage.success('SQL文件保存成功');
+        }
+      } catch (error) {
+        ElMessage.error('保存SQL文件失败: ' + error.message);
+      }
+    };
+
 
     const confirmSave = () => {
       if (!saveForm.name.trim()) {

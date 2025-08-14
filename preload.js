@@ -33,4 +33,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteConnection: (id) => ipcRenderer.invoke('delete-connection', id),
   // 文件对话框相关
   showOpenDialog: (options) => ipcRenderer.invoke('showOpenDialog', options),
+  showSaveDialog: (options) => ipcRenderer.invoke('showSaveDialog', options),
+  loadSQLFile: (filePath) => ipcRenderer.invoke('loadSQLFile', filePath),
+  saveSQLFile: (filePath, content) => ipcRenderer.invoke('saveSQLFile', filePath, content),
 });

@@ -2,29 +2,38 @@
   <div id="app">
     <el-container class="app-container">
       <!-- 头部 -->
-      <el-header class="app-header">
-        <div class="header-left">
+      <el-header class="app-header"  style="display:none">
+        <!-- <div class="header-left">
           <el-icon class="logo-icon"><Database /></el-icon>
           <span class="app-title">DB Client</span>
-        </div>
+        </div> -->
         <div class="header-right">
-          <el-button-group>
+          <!-- <el-button-group>
             <el-button size="small" @click="showAbout">
               <el-icon><InfoFilled /></el-icon>
               关于
             </el-button>
-          </el-button-group>
+          </el-button-group> -->
         </div>
       </el-header>
 
       <!-- 主体内容 -->
       <el-container>
         <!-- 侧边栏 -->
-        <el-aside width="250px" class="app-sidebar">
+        <el-aside  :width="sidebarCollapsed ? '64px' : '200px'" class="app-sidebar">
+          <div class="sidebar-toggle" @click="toggleSidebar">
+            <el-icon>
+              <!-- <div v-if="sidebarCollapsed" >1</div>
+              <div v-else >2</div> -->
+              <Expand v-if="sidebarCollapsed" />
+              <Fold v-else />
+            </el-icon>
+          </div>
           <el-menu
             :default-active="activeMenu"
             class="sidebar-menu"
             @select="handleMenuSelect"
+            :collapse="sidebarCollapsed"
           >
             <el-menu-item index="dashboard">
               <el-icon><Monitor /></el-icon>
@@ -78,6 +87,7 @@ import Connections from './components/Connections.vue';
 import QueryEditor from './components/QueryEditor.vue';
 import Tables from './components/Tables.vue';
 import Settings from './components/Settings.vue';
+import { Monitor, Connection, Edit, Grid, Database, InfoFilled, Expand, Fold } from '@element-plus/icons-vue';
 
 export default {
   name: 'App',
@@ -86,14 +96,23 @@ export default {
     Connections,
     QueryEditor,
     Tables,
-    Settings
+    Settings,
+    // 注册图标组件
+    Monitor,
+    Connection,
+    Edit,
+    Grid,
+    Database,
+    InfoFilled,
+    Expand,
+    Fold
   },
   setup() {
     const activeMenu = ref('dashboard');
     const currentComponent = ref('Dashboard');
     const aboutVisible = ref(false);
     const appVersion = ref('1.0.0');
-
+    const sidebarCollapsed = ref(false); 
     // 菜单选择处理
     const handleMenuSelect = (index) => {
       activeMenu.value = index;
@@ -114,6 +133,12 @@ export default {
           currentComponent.value = 'Settings';
           break;
       }
+    };
+
+    // 切换侧边栏显示/隐藏
+    const toggleSidebar = () => {
+      console.log('toggleSidebar');
+      sidebarCollapsed.value = !sidebarCollapsed.value;
     };
 
     // 显示关于对话框
@@ -168,7 +193,9 @@ export default {
       aboutVisible,
       appVersion,
       handleMenuSelect,
-      showAbout
+      showAbout,
+      sidebarCollapsed, // 返回侧边栏折叠状态
+      toggleSidebar // 返回切换函数
     };
   }
 };
@@ -218,11 +245,41 @@ export default {
 .app-sidebar {
   background-color: #f5f7fa;
   border-right: 1px solid #e4e7ed;
+  position: relative;
 }
 
 .sidebar-menu {
   border-right: none;
   height: 100%;
+  padding-top: 50px;
+}
+
+
+.sidebar-toggle {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 100;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 4px;
+  background-color: #ffffff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+  user-select: none; /* 防止文本选择 */
+}
+
+.sidebar-toggle:hover {
+  background-color: #ecf5ff;
+}
+
+.sidebar-toggle .el-icon {
+  font-size: 16px;
+  color: #409eff;
 }
 
 .app-main {

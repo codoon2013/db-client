@@ -824,3 +824,31 @@ ipcMain.handle('showOpenDialog', async (event, options) => {
   const result = await dialog.showOpenDialog(options);
   return result;
 });
+
+
+
+// 显示文件保存对话框
+ipcMain.handle('showSaveDialog', async (event, options) => {
+  const result = await dialog.showSaveDialog(options);
+  return result;
+});
+
+// 加载SQL文件
+ipcMain.handle('loadSQLFile', async (event, filePath) => {
+  try {
+    const content = fs.readFileSync(filePath, 'utf8');
+    return content;
+  } catch (error) {
+    throw new Error(`无法读取文件: ${error.message}`);
+  }
+});
+
+// 保存SQL文件
+ipcMain.handle('saveSQLFile', async (event, filePath, content) => {
+  try {
+    fs.writeFileSync(filePath, content, 'utf8');
+    return true;
+  } catch (error) {
+    throw new Error(`无法保存文件: ${error.message}`);
+  }
+});

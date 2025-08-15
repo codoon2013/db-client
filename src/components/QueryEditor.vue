@@ -119,6 +119,7 @@
                   style="width: 100%"
                   max-height="400"
                   border
+                  ref="resultTable"
                 >
                   <el-table-column
                     v-for="column in queryResult.columns"
@@ -127,7 +128,69 @@
                     :label="column"
                     min-width="120"
                   />
+                  <el-table-column
+                    label="操作"
+                    width="150"
+                    fixed="right"
+                    v-if="isEditableTable(queryResult.data)"
+                  >
+                    <template #default="scope">
+                      <el-button 
+                        type="primary" 
+                        size="small" 
+                        @click="editRow(scope.row, scope.$index)"
+                        :disabled="editingRow === scope.$index"
+                      >
+                        编辑
+                      </el-button>
+                      <el-button 
+                        type="danger" 
+                        size="small" 
+                        @click="deleteRow(scope.row, scope.$index)"
+                      >
+                        删除
+                      </el-button>
+                    </template>
+                  </el-table-column>
                 </el-table>
+
+                <!-- 编辑对话框 -->
+                <el-dialog 
+                  v-model="editDialogVisible" 
+                  title="编辑数据" 
+                  width="500px"
+                  :before-close="handleEditDialogClose"
+                >
+                  <el-form 
+                    :model="editForm" 
+                    label-width="100px" 
+                    ref="editFormRef"
+                  >
+                    <el-form-item 
+                      v-for="column in queryResult.columns" 
+                      :key="column"
+                      :label="column"
+                    >
+                      <el-input 
+                        v-model="editForm[column]" 
+                        :placeholder="`请输入${column}`"
+                      />
+                    </el-form-item>
+                  </el-form>
+                  <template #footer>
+                    <span class="dialog-footer">
+                      <el-button @click="cancelEdit">取消</el-button>
+                      <el-button 
+                        type="primary" 
+                        @click="confirmEdit"
+                        :loading="editLoading"
+                      >
+                        确认
+                      </el-button>
+                    </span>
+                  </template>
+                </el-dialog>  
+
               </div>
 
               <!-- 无数据结果 -->
@@ -168,9 +231,19 @@
 
 <script setup>
     import { ref, reactive, onMounted, computed, watch } from 'vue';
-    import { ElMessage } from 'element-plus';
+    import { ElMessage,ElMessageBox } from 'element-plus';
     // import { editor as MonacoEditor } from 'monaco-editor';  
     import * as MonacoEditor from 'monaco-editor';
+
+    // 添加编辑相关的响应式数据
+    const editingRow = ref(-1);
+    const editDialogVisible = ref(false);
+    const editForm = reactive({});
+    const editLoading = ref(false);
+    const editFormRef = ref(null);
+    const resultTable = ref(null);
+    const originalRowData = ref(null);
+    const currentRowIndex = ref(-1);
 
     const selectedConnection = ref(null);
     const sqlQuery = ref('select * from user limit 10');
@@ -215,6 +288,172 @@
     };
 
 
+    const isEditableTable = (data) => {
+      if (!data || data.length === 0) return false;
+      // 检查是否是SELECT查询的结果（简单判断）
+      const queryText = sqlQuery.value.trim().toUpperCase();
+      return queryText.startsWith('SELECT') && !queryText.includes('JOIN');
+    };
+
+    const editRow = (row, index) => {
+      editingRow.value = index;
+      currentRowIndex.value = index;
+      originalRowData.value = { ...row };
+      
+      // 填充表单数据
+      queryResult.value.columns.forEach(column => {
+        editForm[column] = row[column];
+      });
+      
+      editDialogVisible.value = true;
+    };
+
+
+    // 删除行数据
+    const deleteRow = (row, index) => {
+      ElMessageBox.confirm(
+        '确定要删除这条数据吗？此操作无法撤销。',
+        '确认删除',
+        {
+          confirmButtonText: '确定',
+          cancelButtonText: '取消',
+          type: 'warning',
+        }
+      ).then(async () => {
+        // 构造DELETE语句（需要根据实际情况调整）
+        try {
+          const conn = availableConnections.value.find(c => c.id === selectedConnection.value);
+          if (!conn || conn.status !== 'connected') {
+            ElMessage.error('数据库未连接');
+            return;
+          }
+          
+          // 获取主键字段（这里简化处理，实际应该从表结构中获取）
+          const primaryKey = queryResult.value.columns[0]; // 假设第一个字段是主键
+          const primaryKeyValue = row[primaryKey];
+          const tableName = getTableNameFromQuery(sqlQuery.value); // 从查询语句中提取表名
+          
+          if (!tableName) {
+            ElMessage.error('无法确定表名，删除失败');
+            return;
+          }
+          
+          // 构造DELETE语句
+          const deleteSql = `DELETE FROM ${tableName} WHERE ${primaryKey} = '${primaryKeyValue}'`;
+          console.log(deleteSql);
+          const connectionId = conn.connectionId;
+          const result = await window.electronAPI.executeQuery(connectionId, deleteSql);
+          
+          if (result.success) {
+            // 从表格数据中移除该行
+            queryResult.value.data.splice(index, 1);
+            ElMessage.success('删除成功');
+            
+            // 重新执行查询以更新数据
+            await executeQuery();
+          } else {
+            ElMessage.error('删除失败：' + result.message);
+          }
+        } catch (error) {
+          ElMessage.error('删除失败：' + error.message);
+        }
+      }).catch(() => {
+        // 用户取消删除
+      });
+    };
+
+    // 从SQL查询中提取表名
+    const getTableNameFromQuery = (sql) => {
+      const match = sql.match(/FROM\s+(\w+)/i);
+      return match ? match[1] : null;
+    };
+
+    // 关闭编辑对话框前的处理
+    const handleEditDialogClose = (done) => {
+      ElMessageBox.confirm('确认关闭编辑窗口吗？未保存的更改将会丢失。', '确认关闭', {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }).then(() => {
+        done();
+      }).catch(() => {
+        // 用户取消关闭
+      });
+    };
+
+
+  // 确认编辑
+  const confirmEdit = async () => {
+    editLoading.value = true;
+    try {
+      const conn = availableConnections.value.find(c => c.id === selectedConnection.value);
+      if (!conn || conn.status !== 'connected') {
+        ElMessage.error('数据库未连接');
+        editLoading.value = false;
+        return;
+      }
+      
+      // 构造UPDATE语句
+      const tableName = getTableNameFromQuery(sqlQuery.value);
+      if (!tableName) {
+        ElMessage.error('无法确定表名，更新失败');
+        editLoading.value = false;
+        return;
+      }
+      
+      // 获取主键字段（简化处理）
+      const primaryKey = queryResult.value.columns[0];
+      const primaryKeyValue = originalRowData.value[primaryKey];
+      
+      // 构造SET子句
+      const setParts = [];
+      queryResult.value.columns.forEach(column => {
+        if (column !== primaryKey) {
+           // 只有当值发生变化时才添加到更新列表中
+          if (editForm[column] !== originalRowData.value[column]) {
+            const value = editForm[column];
+            setParts.push(`${column} = '${value}'`);
+          }
+        }
+      });
+      
+      if (setParts.length === 0) {
+        ElMessage.warning('没有需要更新的字段');
+        editLoading.value = false;
+        return;
+      }
+      
+      const updateSql = `UPDATE ${tableName} SET ${setParts.join(', ')} WHERE ${primaryKey} = '${primaryKeyValue}'`;
+      
+      console.log(updateSql);
+
+      const connectionId = conn.connectionId;
+      const result = await window.electronAPI.executeQuery(connectionId, updateSql);
+      
+      if (result.success) {
+        // 更新表格中的数据
+        Object.assign(queryResult.value.data[currentRowIndex.value], editForm);
+        editDialogVisible.value = false;
+        editingRow.value = -1;
+        ElMessage.success('更新成功');
+        
+        // 重新执行查询以确保数据一致性
+        await executeQuery();
+      } else {
+        ElMessage.error('更新失败：' + result.message);
+      }
+    } catch (error) {
+      ElMessage.error('更新失败：' + error.message);
+    } finally {
+      editLoading.value = false;
+    }
+  };
+
+    // 取消编辑
+    const cancelEdit = () => {
+      editDialogVisible.value = false;
+      editingRow.value = -1;
+    };
     // 注册自动补全提供者
     const registerCompletionProvider = () => {
       // 如果已经注册过，先移除旧的提供者

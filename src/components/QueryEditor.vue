@@ -235,7 +235,7 @@
 </template>
 
 <script setup>
-    import { ref, reactive, onMounted, computed, watch } from 'vue';
+    import { ref, reactive, onMounted, onUnmounted, computed, watch } from 'vue';
     import { ElMessage,ElMessageBox } from 'element-plus';
     // import { editor as MonacoEditor } from 'monaco-editor';  
     import * as MonacoEditor from 'monaco-editor';
@@ -717,7 +717,6 @@
     // 获取表结构信息
     const loadTableStructure = async (connectionId, databaseName) => {
       if (!connectionId || !databaseName) return;
-      
       try {
         // 清空之前的表信息
         tableInfo.value = {};
@@ -750,11 +749,22 @@
       }
     };
 
+    let autoSaveInterval = null;
+    onUnmounted(() => {
+        if (autoSaveInterval) {
+            clearInterval(autoSaveInterval);
+        }
+    });
+
     onMounted(() => {
       const dom = document.getElementById('editor');
       if (dom) {
+        // 尝试从localStorage加载保存的内容
+        const savedContent = localStorage.getItem('queryEditorContent');
+        const initialValue = savedContent || sqlQuery.value;
+
         monacoInstance = MonacoEditor.editor.create(dom, {
-          value: sqlQuery.value,
+          value: initialValue,
           language: 'sql',
           theme: 'vs-dark',
           automaticLayout: true,
@@ -769,6 +779,15 @@
           sqlQuery.value = monacoInstance.getValue();
         });
 
+        // 每5秒自动保存编辑器内容到localStorage
+        autoSaveInterval = setInterval(() => {
+          if (monacoInstance) {
+            const content = monacoInstance.getValue();
+            localStorage.setItem('queryEditorContent', content);
+          }
+        }, 3000);
+
+        
 
         registerCompletionProvider();
 

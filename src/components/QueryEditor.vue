@@ -18,6 +18,19 @@
         >
           {{ currentConnStatus === 'connected' ? '已连接' : '连接' }}
         </el-button>
+        <el-button
+          type="primary"
+          size="small"
+          @click="refreshTableStructure"
+          :loading="refreshingStructure"
+          :disabled="currentConnStatus !== 'connected'"
+        >
+          <el-icon><Refresh /></el-icon>
+          刷新表结构
+          <span v-if="loadingProgress.total > 0">
+            ({{ loadingProgress.current }}/{{ loadingProgress.total }})
+          </span>
+        </el-button>
       </div>
     </div>
 
@@ -257,6 +270,8 @@
     const saveDialogVisible = ref(false);
     const queryResult = ref(null);
     const editorHeight = ref(200); // 初始高度
+    const refreshingStructure = ref(false); 
+    const loadingProgress = ref({ current: 0, total: 0 }); // 添加进度跟踪
 
     const connections = ref([]);
     const availableConnections = ref([]);
@@ -270,6 +285,24 @@
     let completionProvider = null;
     // 存储表名和字段信息
     const tableInfo = ref({});
+
+    // 监听数据库连接变化，关闭之前的连接
+    watch(selectedConnection, async (newConnId, oldConnId) => {
+      // 如果有旧的连接且与新连接不同，则关闭旧连接
+      if (oldConnId && oldConnId !== newConnId) {
+        const oldConn = availableConnections.value.find(c => c.id === oldConnId);
+        if (oldConn && oldConn.status === 'connected') {
+          try {
+            const connectionId = `${oldConn.id}`;
+            await window.electronAPI.closeDatabaseConnection(connectionId);
+            oldConn.status = 'disconnected';
+            // ElMessage.success(`已断开连接: ${oldConn.name}`);
+          } catch (error) {
+            console.error('关闭旧连接失败:', error);
+          }
+        }
+      }
+    });
 
     const startResize = (e) => {
       const startY = e.clientY;
@@ -316,6 +349,58 @@
       editDialogVisible.value = true;
     };
 
+    // 刷新表结构信息
+    const refreshTableStructure = async () => {
+      const conn = availableConnections.value.find(c => c.id === selectedConnection.value);
+      if (!conn || conn.status !== 'connected' || !conn.connectionId) {
+        ElMessage.warning('请先连接数据库');
+        return;
+      }
+
+      refreshingStructure.value = true;
+      try {
+        await loadTableStructure(conn.connectionId, conn.database);
+        
+        // 保存表结构到本地存储
+        const structureKey = `tableStructure_${conn.id}`;
+        const structureData = {
+          database: conn.database,
+          tableInfo: tableInfo.value,
+          timestamp: Date.now()
+        };
+        localStorage.setItem(structureKey, JSON.stringify(structureData));
+        
+        ElMessage.success('表结构刷新成功并已保存到本地');
+      } catch (error) {
+        ElMessage.error('刷新表结构失败: ' + error.message);
+      } finally {
+        refreshingStructure.value = false;
+      }
+    };
+
+    // 从本地存储加载表结构
+    const loadTableStructureFromStorage = (connectionId) => {
+      try {
+        const structureKey = `tableStructure_${connectionId}`;
+        const savedStructure = localStorage.getItem(structureKey);
+        if (savedStructure) {
+          const structureData = JSON.parse(savedStructure);
+          // 检查数据是否过期（例如超过24小时）
+          const oneDay = 7 * 24 * 60 * 60 * 1000;
+          if (Date.now() - structureData.timestamp < oneDay) {
+            tableInfo.value = structureData.tableInfo;
+            registerCompletionProvider();
+            return true;
+          } else {
+            // 数据过期，删除旧数据
+            localStorage.removeItem(structureKey);
+          }
+        }
+      } catch (error) {
+        console.error('从本地加载表结构失败:', error);
+      }
+      return false;
+    };
 
     // 删除行数据
     const deleteRow = (row, index) => {
@@ -720,30 +805,29 @@
       try {
         // 清空之前的表信息
         tableInfo.value = {};
-        
         // 获取所有表
         const tablesResult = await window.electronAPI.getTables(connectionId, databaseName);
         if (tablesResult && tablesResult.length > 0) {
+          loadingProgress.value = { current: 0, total: tablesResult.length };
           // 获取每个表的字段信息
           for (const table of tablesResult) {
             // 处理不同数据库返回的表结构差异
             const tableName = table.name || table;
-            
             const structureResult = await window.electronAPI.getTableStructure(
               connectionId, 
               databaseName, 
               tableName
             );
-            
             if (structureResult && structureResult.columns) {
               // 保存字段名列表
               tableInfo.value[tableName] = structureResult.columns.map(col => col.name);
             }
+            loadingProgress.value.current++;
           }
-          
           // 重新注册自动补全提供者以更新建议项
           registerCompletionProvider();
         }
+        ElMessage.success(`获取${databaseName}表信息成功`);
       } catch (error) {
         console.error('加载表结构失败:', error);
       }
@@ -819,7 +903,27 @@
             conn.status = 'connected';
             conn.connectionId = result.connectionId;
             ElMessage.success('连接成功');
-            loadTableStructure(conn.connectionId, conn.database);
+            // 首先尝试从本地存储加载表结构
+            if (!loadTableStructureFromStorage(conn.id)) {
+              // 如果本地没有或者过期，则从数据库加载
+              // 异步加载表结构，不阻塞UI
+              // loadTableStructure(conn.connectionId, conn.database)
+              //   .then(() => {
+              //     // 加载成功后保存到本地
+              //     const structureKey = `tableStructure_${conn.id}`;
+              //     const structureData = {
+              //       database: conn.database,
+              //       tableInfo: tableInfo.value,
+              //       timestamp: Date.now()
+              //     };
+              //     localStorage.setItem(structureKey, JSON.stringify(structureData));
+              //   })
+              //   .catch(error => {
+              //     console.error('加载表结构失败:', error);
+              //     ElMessage.error('加载表结构失败: ' + error.message);
+              //   });
+            }
+            
           } else {
             ElMessage.error('连接失败：' + result.message);
           }

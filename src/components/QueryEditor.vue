@@ -158,14 +158,18 @@
                 <el-dialog 
                   v-model="editDialogVisible" 
                   title="编辑数据" 
-                  width="500px"
+                  width="800px"
                   :before-close="handleEditDialogClose"
+                  class="edit-dialog"
                 >
+        
                   <el-form 
                     :model="editForm" 
-                    label-width="100px" 
+                    label-width="200px" 
                     ref="editFormRef"
+                    class="edit-form"
                   >
+                  <div class="form-content">
                     <el-form-item 
                       v-for="column in queryResult.columns" 
                       :key="column"
@@ -176,6 +180,7 @@
                         :placeholder="`请输入${column}`"
                       />
                     </el-form-item>
+                  </div>
                   </el-form>
                   <template #footer>
                     <span class="dialog-footer">
@@ -274,7 +279,10 @@
         const delta = moveEvent.clientY - startY;
         editorHeight.value = Math.max(100, startHeight + delta); // 最小高度100px
         if (monacoInstance) {
-          monacoInstance.layout();
+          // 使用防抖函数避免频繁触发layout
+          requestAnimationFrame(() => {
+            monacoInstance.layout();
+          });
         }
       };
 
@@ -375,7 +383,8 @@
         cancelButtonText: '取消',
         type: 'warning',
       }).then(() => {
-        done();
+        cancelEdit();
+        done()
       }).catch(() => {
         // 用户取消关闭
       });
@@ -1176,6 +1185,39 @@
 
 .result-table {
   margin-top: 16px;
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.sql-editor {
+  width: 100%;
+  min-height: 220px;
+  border: 1px solid #e4e7ed;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.sql-editor :deep(.monaco-editor) {
+  min-height: 200px;
+}
+
+.edit-dialog :deep(.el-dialog__body) {
+  padding: 10px 20px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.edit-form {
+  height: 100%;
+}
+
+.form-content {
+  max-height: 50vh;
+  overflow-y: auto;
 }
 
 .dialog-footer {

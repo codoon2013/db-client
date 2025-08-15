@@ -539,7 +539,8 @@
       try {
         if (conn.status === 'connected') {
           // 断开连接
-          const connectionId = `${conn.type}_${conn.host}_${conn.port}_${conn.database}`;
+          const connectionId = `${conn.id}`;
+          console.log('关闭数据库连接:', connectionId);
           await window.electronAPI.closeDatabaseConnection(connectionId);
           conn.status = 'disconnected';
           ElMessage.success('连接已断开');

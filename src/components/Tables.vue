@@ -712,7 +712,7 @@ const toggleConnectionStatus = async () => {
   // const currentPreviewTable = previewTable.value;
   try {
     if (conn.status === 'connected') {
-      const connectionId = `${conn.type}_${conn.host}_${conn.port}_${conn.database}`;
+      const connectionId = `${conn.id}`;
       await window.electronAPI.closeDatabaseConnection(connectionId);
       conn.status = 'disconnected';
       ElMessage.success('连接已断开');

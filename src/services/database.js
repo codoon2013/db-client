@@ -264,7 +264,7 @@ class DatabaseService {
 
   // 建立持久连接
   async establishConnection (connectionConfig) {
-    const connectionId = `${connectionConfig.type}_${connectionConfig.host}_${connectionConfig.port}_${connectionConfig.database}`;
+    const connectionId = `${connectionConfig.id}`;
 
     if (this.connections.has(connectionId)) {
       return this.connections.get(connectionId);

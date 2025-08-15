@@ -173,7 +173,7 @@ ipcMain.handle('test-database-connection', async (event, connectionConfig) => {
 ipcMain.handle('establish-database-connection', async (event, connectionConfig) => {
   try {
     const connection = await databaseService.establishConnection(connectionConfig);
-    const connectionId = `${connectionConfig.type}_${connectionConfig.host}_${connectionConfig.port}_${connectionConfig.database}`;
+    const connectionId = `${connectionConfig.id}`;
     return { success: true, connectionId, message: '连接建立成功' };
   } catch (error) {
     return {

@@ -306,7 +306,7 @@ export default {
           });
           
           // 关闭真正的数据库连接
-          const connectionId = `${connection.type}_${connection.host}_${connection.port}_${connection.database}`;
+          const connectionId = `${connection.id}`;
           await window.electronAPI.closeDatabaseConnection(connectionId);
           
           connection.status = 'disconnected';

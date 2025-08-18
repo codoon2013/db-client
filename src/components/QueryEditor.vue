@@ -140,7 +140,11 @@
                     :prop="column"
                     :label="column"
                     min-width="120"
-                  />
+                  >
+                    <template #default="scope">
+                      {{ formatCellValue(scope.row[column]) }}
+                    </template>
+                  </el-table-column>
                   <el-table-column
                     label="操作"
                     width="150"
@@ -1175,6 +1179,82 @@
         ElMessage.error(`导出SQL失败: ${error.message}`);
       }
     };
+
+    const formatCellValue = (value) => {
+      console.log(value)
+      if (value instanceof Uint8Array) {
+        // 尝试将 Uint8Array 转换为 UUID 字符串
+        try {
+          // 如果长度为16，则按标准UUID格式处理
+          if (value.length === 16) {
+            const hex = Array.from(value)
+              .map(b => b.toString(16).padStart(2, '0'))
+              .join('');
+            const uuid = `${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20, 32)}`;
+            return uuid;
+          }
+          // 如果长度为36，可能是包含ASCII码的UUID字符串
+          else if (value.length === 36) {
+            // 将Uint8Array转换为字符串
+            const str = Array.from(value)
+              .map(b => String.fromCharCode(b))
+              .join('');
+            // 检查是否为有效的UUID格式
+            if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str) ||
+                /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str.replace(/-/g, ''))) {
+              return str;
+            }
+            // 如果不是UUID格式，返回原始字符串
+            return str;
+          }
+          // 其他情况返回数组表示
+          else {
+            return Array.from(value).join(',');
+          }
+        } catch (e) {
+          // 如果转换失败，返回原始数组表示
+          return Array.from(value).join(',');
+        }
+      }
+      // 检查是否为日期对象或日期字符串
+      if (value instanceof Date || (typeof value === 'string' && !isNaN(Date.parse(value)))) {
+        try {
+          const date = new Date(value);
+          // 检查日期是否有效
+          if (!isNaN(date.getTime())) {
+            // 格式化为 YYYY-MM-DD HH:mm:ss
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            const seconds = String(date.getSeconds()).padStart(2, '0');
+            return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+          }else{
+            return '';
+          }
+        } catch (e) {
+          // 如果转换失败，返回原始值
+          return '';
+        }
+      }
+      return value;
+    };
+
+    // 格式化执行时间显示为中国格式
+    const formatExecutionTime = (milliseconds) => {
+      if (milliseconds < 1000) {
+        return `${milliseconds}ms`;
+      } else if (milliseconds < 60000) {
+        const seconds = (milliseconds / 1000).toFixed(2);
+        return `${seconds}s`;
+      } else {
+        const minutes = Math.floor(milliseconds / 60000);
+        const seconds = ((milliseconds % 60000) / 1000).toFixed(2);
+        return `${minutes}分${seconds}秒`;
+      }
+    };
+
 
     const loadConnections = async () => {
       const saved = await window.electronAPI.getConnections();

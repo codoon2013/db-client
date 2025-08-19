@@ -1217,7 +1217,7 @@
         }
       }
       // 检查是否为日期对象或日期字符串
-      if (value instanceof Date || (typeof value === 'string' && !isNaN(Date.parse(value)))) {
+      if (value instanceof Date || (typeof value === 'string' && !/^\d+$/.test(value) && !isNaN(Date.parse(value)))) {
         try {
           const date = new Date(value);
           // 检查日期是否有效

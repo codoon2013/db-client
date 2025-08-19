@@ -347,7 +347,7 @@
       
       // 填充表单数据
       queryResult.value.columns.forEach(column => {
-        editForm[column] = row[column];
+        editForm[column] = formatCellValue(row[column]);
       });
       
       editDialogVisible.value = true;

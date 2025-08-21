@@ -204,7 +204,7 @@ ipcMain.handle('execute-query', async (event, connectionId, query) => {
     let result, columns, fieldMap, affectedRows;
     if (connection.execute) {
       // MySQL
-      const [rows, fields] = await connection.execute(query);
+      const [rows, fields] = await connection.query(query);
       result = rows;
       if (Array.isArray(fields)) {
         fieldMap = fields.map(field => {
@@ -438,7 +438,7 @@ ipcMain.handle('import-from-file', async (event, connectionId, tableName, filePa
       try {
         for (const row of data) {
           const values = columns.map(col => row[col]);
-          const [result] = await connection.execute(sql, values);
+          const [result] = await connection.query(sql, values);
           importedRowCount += result.affectedRows;
         }
         await connection.commit();
@@ -668,14 +668,14 @@ ipcMain.handle('get-table-data', async (event, connectionId, databaseName, table
         : '';
 
       // 获取总数
-      const [countRows] = await connection.execute(
+      const [countRows] = await connection.query(
         `SELECT COUNT(*) as total FROM \`${tableName}\` ${whereClause}`.replace(/\\`/g, '`'),
         search ? [`%${search}%`] : []
       );
       total = countRows[0].total;
 
       // 获取分页数据
-      const [rows] = await connection.execute(
+      const [rows] = await connection.query(
         `SELECT * FROM \`${tableName}\` ${whereClause} LIMIT ? OFFSET ?`.replace(/\\`/g, '`'),
         search ? [`%${search}%`, pageSize, (page - 1) * pageSize] : [pageSize, (page - 1) * pageSize]
       );

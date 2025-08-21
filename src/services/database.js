@@ -197,7 +197,7 @@ class DatabaseService {
   // 获取MySQL版本信息
   async getMySQLVersion (connection) {
     try {
-      const [rows] = await connection.execute('SELECT VERSION() as version');
+      const [rows] = await connection.query('SELECT VERSION() as version');
       return rows[0].version;
     } catch (error) {
       return 'Unknown';
@@ -207,7 +207,7 @@ class DatabaseService {
   // 获取MySQL数据库列表
   async getMySQLDatabases (connection) {
     try {
-      const [rows] = await connection.execute('SHOW DATABASES');
+      const [rows] = await connection.query('SHOW DATABASES');
       return rows.map(row => row.Database);
     } catch (error) {
       return [];

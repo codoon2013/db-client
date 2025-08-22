@@ -83,7 +83,7 @@
         <el-card shadow="hover" class="result-card">
           <template #header>
             <div class="card-header">
-              <span>查询结果</span>
+              <span>查询结果:{{ currentTableName }}</span>
               <div class="result-actions">
                 <el-tag v-if="queryResult" :type="queryResult.success ? 'success' : 'danger'">
                   {{ queryResult.success ? '执行成功' : '执行失败' }}
@@ -149,7 +149,7 @@
                     label="操作"
                     width="150"
                     fixed="right"
-                    v-if="isEditableTable(queryResult.data)"
+                    v-if="shouldShowActions(queryResult.data)"
                   >
                     <template #default="scope">
                       <el-button 
@@ -276,9 +276,12 @@
     const editorHeight = ref(200); // 初始高度
     const refreshingStructure = ref(false); 
     const loadingProgress = ref({ current: 0, total: 0 }); // 添加进度跟踪
-
     const connections = ref([]);
     const availableConnections = ref([]);
+
+    // 添加用于存储表名的响应式变量
+    const currentTableName = ref(null);
+    const currentSql = ref(null);
 
     const saveForm = reactive({
       name: '',
@@ -338,6 +341,20 @@
       // 检查是否是SELECT查询的结果（简单判断）
       const queryText = sqlQuery.value.trim().toUpperCase();
       return queryText.startsWith('SELECT') && !queryText.includes('JOIN');
+    };
+
+    const shouldShowActions = (data) => {
+      if (!data || data.length === 0) return false;
+      
+      // 检查是否是SELECT查询
+      const queryText = currentSql.value.trim().toUpperCase();
+      if (!queryText.startsWith('SELECT')) return false;
+      
+      // 不显示JOIN查询的操作列
+      if (queryText.includes('JOIN')) return false;
+      
+      // 检查是否有主键（简化处理，至少需要一个列）
+      return queryResult.value && queryResult.value.columns && queryResult.value.columns.length > 0;
     };
 
     const editRow = (row, index) => {
@@ -428,7 +445,7 @@
           // 获取主键字段（这里简化处理，实际应该从表结构中获取）
           const primaryKey = queryResult.value.columns[0]; // 假设第一个字段是主键
           const primaryKeyValue = row[primaryKey];
-          const tableName = getTableNameFromQuery(sqlQuery.value); // 从查询语句中提取表名
+          const tableName = currentTableName.value;
           
           if (!tableName) {
             ElMessage.error('无法确定表名，删除失败');
@@ -461,8 +478,55 @@
 
     // 从SQL查询中提取表名
     const getTableNameFromQuery = (sql) => {
-      const match = sql.match(/FROM\s+(\w+)/i);
-      return match ? match[1] : null;
+      // 移除注释和多余空格
+      const cleanSql = sql.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--.*$/gm, '').trim();
+      
+      // 转换为大写以便匹配
+      const upperSql = cleanSql.toUpperCase();
+      
+      // 处理 SHOW CREATE TABLE 语句
+      const showCreateMatch = cleanSql.match(/SHOW\s+CREATE\s+TABLE\s+([^\s;]+)/i);
+      if (showCreateMatch && showCreateMatch[1]) {
+        return showCreateMatch[1].replace(/`/g, ''); // 移除可能的反引号
+      }
+      
+      // 处理 DESCRIBE/DESC 语句
+      const descMatch = cleanSql.match(/(?:DESCRIBE|DESC)\s+([^\s;]+)/i);
+      if (descMatch && descMatch[1]) {
+        return descMatch[1].replace(/`/g, '');
+      }
+      
+      // 处理标准的 SELECT ... FROM 语句
+      const fromRegex = /FROM\s+([^\s,)(;]+)/i;
+      const fromMatch = cleanSql.match(fromRegex);
+      
+      if (fromMatch && fromMatch[1]) {
+        // 移除可能的别名（AS 或空格后的内容）
+        const tableName = fromMatch[1].split(/\s+|AS/i)[0];
+        // 移除可能的反引号
+        return tableName.replace(/`/g, '');
+      }
+      
+      // 更复杂的匹配，处理多表查询等情况
+      const complexFromRegex = /FROM\s+([^;]*?)(?:\s+WHERE|\s+GROUP|\s+ORDER|\s+LIMIT|\s*$)/i;
+      const complexMatch = cleanSql.match(complexFromRegex);
+      
+      if (complexMatch && complexMatch[1]) {
+        // 获取第一个表名
+        const tables = complexMatch[1].split(',').map(table => table.trim());
+        if (tables.length > 0) {
+          // 返回第一个表名，移除别名和引号
+          return tables[0].split(/\s+|AS/i)[0].replace(/`/g, '');
+        }
+      }
+      
+      // 对于其他 DDL/DML 语句 (INSERT, UPDATE, DELETE, etc.)
+      const ddlMatches = cleanSql.match(/(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|TRUNCATE\s+TABLE|ALTER\s+TABLE|DROP\s+TABLE)\s+([^\s(;]+)/i);
+      if (ddlMatches && ddlMatches[1]) {
+        return ddlMatches[1].replace(/`/g, '');
+      }
+      
+      return null;
     };
 
     // 关闭编辑对话框前的处理
@@ -491,42 +555,71 @@
         return;
       }
       
+      // 获取主键字段（简化处理）
+      const primaryKey = queryResult.value.columns[0];
+      const primaryKeyValue = originalRowData.value[primaryKey];
+      const newPrimaryKeyValue = editForm[primaryKey];
+
       // 构造UPDATE语句
-      const tableName = getTableNameFromQuery(sqlQuery.value);
+      let sql = '';
+      const tableName = currentTableName.value;
       if (!tableName) {
         ElMessage.error('无法确定表名，更新失败');
         editLoading.value = false;
         return;
       }
       
-      // 获取主键字段（简化处理）
-      const primaryKey = queryResult.value.columns[0];
-      const primaryKeyValue = originalRowData.value[primaryKey];
       
-      // 构造SET子句
-      const setParts = [];
-      queryResult.value.columns.forEach(column => {
-        if (column !== primaryKey) {
-           // 只有当值发生变化时才添加到更新列表中
-          if (editForm[column] !== originalRowData.value[column]) {
-            const value = editForm[column];
-            setParts.push(`${column} = '${value}'`);
+      // 如果主键被修改为0或空，则执行插入操作
+      if (newPrimaryKeyValue === 0 || newPrimaryKeyValue === '' || newPrimaryKeyValue === null || newPrimaryKeyValue === undefined) {
+        // 构造INSERT语句
+        const columns = queryResult.value.columns.filter(column => column !== primaryKey || newPrimaryKeyValue !== 0);
+        const values = columns.map(column => {
+          const value = editForm[column];
+          return value === null || value === undefined ? 'NULL' : `'${value}'`;
+        });
+        
+        sql = `INSERT INTO ${tableName} (${columns.join(', ')}) VALUES (${values.join(', ')})`;
+      } else if (primaryKeyValue === 0 || primaryKeyValue === '' || primaryKeyValue === null || primaryKeyValue === undefined) {
+        // 原来主键为空，现在有值，执行插入操作
+        const columns = queryResult.value.columns;
+        const values = columns.map(column => {
+          const value = editForm[column];
+          return value === null || value === undefined ? 'NULL' : `'${value}'`;
+        });
+        
+        sql = `INSERT INTO ${tableName} (${columns.join(', ')}) VALUES (${values.join(', ')})`;
+      } else {
+        // 否则执行更新操作
+        // 构造SET子句
+        const setParts = [];
+        queryResult.value.columns.forEach(column => {
+          if (column !== primaryKey) {
+            // 只有当值发生变化时才添加到更新列表中
+            if (editForm[column] !== originalRowData.value[column]) {
+              const value = editForm[column];
+              setParts.push(`${column} = '${value}'`);
+            }
+          } else if (newPrimaryKeyValue !== primaryKeyValue) {
+            // 如果主键值也发生了变化
+            setParts.push(`${column} = '${newPrimaryKeyValue}'`);
           }
+        });
+        
+        if (setParts.length === 0) {
+          ElMessage.warning('没有需要更新的字段');
+          editLoading.value = false;
+          return;
         }
-      });
-      
-      if (setParts.length === 0) {
-        ElMessage.warning('没有需要更新的字段');
-        editLoading.value = false;
-        return;
+        
+        sql = `UPDATE ${tableName} SET ${setParts.join(', ')} WHERE ${primaryKey} = '${primaryKeyValue}'`;
       }
       
-      const updateSql = `UPDATE ${tableName} SET ${setParts.join(', ')} WHERE ${primaryKey} = '${primaryKeyValue}'`;
-      
-      console.log(updateSql);
+
+      console.log(sql);
 
       const connectionId = conn.connectionId;
-      const result = await window.electronAPI.executeQuery(connectionId, updateSql);
+      const result = await window.electronAPI.executeQuery(connectionId, sql);
       
       if (result.success) {
         // 更新表格中的数据
@@ -955,9 +1048,20 @@
 
       const appendLimitIfMissing = (sql) => {
         let s = sql.trim().replace(/;$/, '').trim();
+        
+        // 只对SELECT语句添加LIMIT子句
         if (!/^select/i.test(s)) return sql;
-        // 只要有 limit 关键字就不加
-        if (s.includes('limit')) return sql;
+        
+        // 如果已经有LIMIT子句就不添加
+        if (/\blimit\b/i.test(s)) return sql;
+        
+        // 对于某些特定的SELECT语句可能也不需要添加LIMIT
+        // 例如：SELECT COUNT(*) 通常不需要LIMIT
+        if (/\bcount\s*\(\s*\*\s*\)/i.test(s)) return sql;
+        
+        // 对于包含聚合函数的查询也不添加LIMIT
+        if (/\b(avg|sum|max|min)\s*\(/i.test(s)) return sql;
+        
         return s + ' limit 100';
       } 
 
@@ -1013,13 +1117,16 @@
       executing.value = true;
       try {
         const connectionId = conn.connectionId;
-        console.log(connectionId);
+        console.log(connectionId,sql);
         const result = await window.electronAPI.executeQuery(connectionId, sql);
-      
+
         queryResult.value = result;
         console.log(result);
         if (result.success) {
           ElMessage.success('查询执行成功');
+          currentSql.value = sql;
+          currentTableName.value = getTableNameFromQuery(sql);
+          console.log('当前表名:', currentTableName.value);
         } else {
           ElMessage.error('查询执行失败：' + result.message);
         }
@@ -1181,7 +1288,6 @@
     };
 
     const formatCellValue = (value) => {
-      console.log(value)
       if (value instanceof Uint8Array) {
         // 尝试将 Uint8Array 转换为 UUID 字符串
         try {

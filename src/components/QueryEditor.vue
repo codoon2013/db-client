@@ -142,7 +142,7 @@
                     min-width="120"
                   >
                     <template #default="scope">
-                      {{ formatCellValue(scope.row[column]) }}
+                      {{ formatCellValue(scope.row[column], column)  }}
                     </template>
                   </el-table-column>
                   <el-table-column
@@ -406,22 +406,17 @@
         const savedStructure = localStorage.getItem(structureKey);
         if (savedStructure) {
           const structureData = JSON.parse(savedStructure);
-          // 检查数据是否过期（例如超过24小时）
-          const oneDay = 7 * 24 * 60 * 60 * 1000;
-          if (Date.now() - structureData.timestamp < oneDay) {
-            tableInfo.value = structureData.tableInfo;
-            registerCompletionProvider();
-            return true;
-          } else {
-            // 数据过期，删除旧数据
-            localStorage.removeItem(structureKey);
-          }
+          // 不检查数据是否过期，总是使用本地存储的数据
+          tableInfo.value = structureData.tableInfo;
+          registerCompletionProvider();
+          return true;
         }
       } catch (error) {
         console.error('从本地加载表结构失败:', error);
       }
       return false;
     };
+
 
     // 删除行数据
     const deleteRow = (row, index) => {
@@ -1220,8 +1215,31 @@
       }
       
       try {
-        const json = JSON.parse(JSON.stringify(queryResult.value.data));
-        const result = await window.electronAPI.exportToExcel(json);
+        // 对导出数据应用格式化
+        const formattedData = queryResult.value.data.map(row => {
+          const formattedRow = {};
+          queryResult.value.columns.forEach(column => {
+            formattedRow[column] = formatCellValue(row[column], column);
+          });
+          return formattedRow;
+        });
+        
+        // 获取本地日期格式，避免时区问题
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        const dateString = `${year}-${month}-${day}`;
+        
+        const json = JSON.parse(JSON.stringify(formattedData));
+        // 传递字段映射信息，以便在导出时更好地处理数据类型
+        const exportOptions = {
+          data: json,
+          fieldMap: queryResult.value.fieldMap,
+          filename: `query_result_${dateString}.xlsx`
+        };
+        const s = JSON.parse(JSON.stringify(exportOptions));
+        const result = await window.electronAPI.exportToExcel(s);
         if (result.success) {
           ElMessage.success('结果已成功导出！');
         } else {
@@ -1246,9 +1264,25 @@
       }
       
       try {
-        const data = JSON.parse(JSON.stringify(queryResult.value.data));
+        // 对导出数据应用格式化
+        const formattedData = queryResult.value.data.map(row => {
+          const formattedRow = {};
+          queryResult.value.columns.forEach(column => {
+            formattedRow[column] = formatCellValue(row[column], column);
+          });
+          return formattedRow;
+        });
+        
+        const data = JSON.parse(JSON.stringify(formattedData));
         const columns = JSON.parse(JSON.stringify(queryResult.value.columns));
-        const result = await window.electronAPI.exportToCSV({ data, columns });
+        // 传递字段映射信息，以便在导出时更好地处理数据类型
+        const exportOptions = {
+          data,
+          columns,
+          fieldMap: queryResult.value.fieldMap
+        };
+        const s = JSON.parse(JSON.stringify(exportOptions));
+        const result = await window.electronAPI.exportToCSV(s);
         if (result.success) {
           ElMessage.success('结果已成功导出为CSV！');
         } else {
@@ -1287,7 +1321,124 @@
       }
     };
 
-    const formatCellValue = (value) => {
+    const formatCellValue = (value, columnName) => {
+      // 根据字段类型处理数据格式
+      if (columnName && queryResult.value && queryResult.value.fieldMap) {
+        const fieldInfo = queryResult.value.fieldMap.find(field => field.name === columnName);
+        if (fieldInfo) {
+          // 根据 MySQL 字段类型编号处理数据
+          switch (fieldInfo.type) {
+            // 字符串类型 (VARCHAR, CHAR, TEXT 等)
+            case 253: // MYSQL_TYPE_VAR_STRING
+            case 254: // MYSQL_TYPE_STRING
+              return value === null || value === undefined ? '' : String(value);
+            
+            // 整数类型
+            case 1:   // MYSQL_TYPE_TINY
+            case 2:   // MYSQL_TYPE_SHORT
+            case 3:   // MYSQL_TYPE_LONG
+            case 8:   // MYSQL_TYPE_LONGLONG
+            case 9:   // MYSQL_TYPE_INT24
+              if (value === null || value === undefined) return '';
+              const num = Number(value);
+              return isNaN(num) ? value : num.toString();
+            
+            // 浮点数类型
+            case 4:   // MYSQL_TYPE_FLOAT
+            case 5:   // MYSQL_TYPE_DOUBLE
+            case 246: // MYSQL_TYPE_DECIMAL
+              if (value === null || value === undefined) return '';
+              const floatNum = parseFloat(value);
+              return isNaN(floatNum) ? value : floatNum.toString();
+            
+            // 日期时间类型
+            case 7:   // MYSQL_TYPE_TIMESTAMP
+            case 10:  // MYSQL_TYPE_DATE
+            case 11:  // MYSQL_TYPE_TIME
+            case 12:  // MYSQL_TYPE_DATETIME
+            case 13:  // MYSQL_TYPE_YEAR
+              if (value === null || value === undefined) return '';
+              try {
+                const date = new Date(value);
+                if (!isNaN(date.getTime())) {
+                  // 根据具体类型格式化日期
+                  switch (fieldInfo.type) {
+                    case 10: // DATE
+                      const year = date.getFullYear();
+                      const month = String(date.getMonth() + 1).padStart(2, '0');
+                      const day = String(date.getDate()).padStart(2, '0');
+                      return `${year}-${month}-${day}`;
+                    
+                    case 11: // TIME
+                      const hours = String(date.getHours()).padStart(2, '0');
+                      const minutes = String(date.getMinutes()).padStart(2, '0');
+                      const seconds = String(date.getSeconds()).padStart(2, '0');
+                      return `${hours}:${minutes}:${seconds}`;
+                    
+                    default: // DATETIME, TIMESTAMP
+                      const fullYear = date.getFullYear();
+                      const fullMonth = String(date.getMonth() + 1).padStart(2, '0');
+                      const fullDay = String(date.getDate()).padStart(2, '0');
+                      const fullHours = String(date.getHours()).padStart(2, '0');
+                      const fullMinutes = String(date.getMinutes()).padStart(2, '0');
+                      const fullSeconds = String(date.getSeconds()).padStart(2, '0');
+                      return `${fullYear}-${fullMonth}-${fullDay} ${fullHours}:${fullMinutes}:${fullSeconds}`;
+                  }
+                }
+              } catch (e) {
+                // 如果日期转换失败，返回原始值
+                return value;
+              }
+              return value;
+            
+            // BLOB 类型
+            case 252: // MYSQL_TYPE_BLOB
+              if (value instanceof Uint8Array) {
+                // 尝试将 Uint8Array 转换为 UUID 字符串
+                try {
+                  // 如果长度为16，则按标准UUID格式处理
+                  if (value.length === 16) {
+                    const hex = Array.from(value)
+                      .map(b => b.toString(16).padStart(2, '0'))
+                      .join('');
+                    const uuid = `${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20, 32)}`;
+                    return uuid;
+                  }
+                  // 如果长度为36，可能是包含ASCII码的UUID字符串
+                  else if (value.length === 36) {
+                    // 将Uint8Array转换为字符串
+                    const str = Array.from(value)
+                      .map(b => String.fromCharCode(b))
+                      .join('');
+                    // 检查是否为有效的UUID格式
+                    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str) ||
+                        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str.replace(/-/g, ''))) {
+                      return str;
+                    }
+                    // 如果不是UUID格式，返回原始字符串
+                    return str;
+                  }
+                  // 其他情况返回数组表示
+                  else {
+                    return Array.from(value).join(',');
+                  }
+                } catch (e) {
+                  // 如果转换失败，返回原始数组表示
+                  return Array.from(value).join(',');
+                }
+              }
+              return value;
+            
+            // 布尔类型
+            case 16: // MYSQL_TYPE_BIT
+              if (value === 1 || value === true) return '1';
+              if (value === 0 || value === false) return '0';
+              return value;
+          }
+        }
+      }
+      
+      // 如果没有字段信息或未匹配到特定类型，使用原来的处理逻辑
       if (value instanceof Uint8Array) {
         // 尝试将 Uint8Array 转换为 UUID 字符串
         try {
@@ -1322,6 +1473,7 @@
           return Array.from(value).join(',');
         }
       }
+      
       // 检查是否为日期对象或日期字符串
       if (value instanceof Date || (typeof value === 'string' && !/^\d+$/.test(value) && !isNaN(Date.parse(value)))) {
         try {
@@ -1336,7 +1488,7 @@
             const minutes = String(date.getMinutes()).padStart(2, '0');
             const seconds = String(date.getSeconds()).padStart(2, '0');
             return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
-          }else{
+          } else {
             return '';
           }
         } catch (e) {
@@ -1344,8 +1496,11 @@
           return '';
         }
       }
-      return value;
+      
+      // 默认处理
+      return value === null || value === undefined ? '' : value;
     };
+
 
     // 格式化执行时间显示为中国格式
     const formatExecutionTime = (milliseconds) => {

@@ -261,10 +261,170 @@ ipcMain.handle('delete-connection', async (event, id) => {
 });
 
 // 导出数据到 Excel
-ipcMain.handle('export-to-excel', async (event, data, filename) => {
+ipcMain.handle('export-to-excel', async (event, exportOptions) => {
   try {
+    // 处理传入的参数，兼容旧版本调用方式
+    let data, filename, fieldMap;
+    if (typeof exportOptions === 'object' && exportOptions !== null) {
+      // 新的调用方式，包含fieldMap等信息
+      data = exportOptions.data;
+      filename = exportOptions.filename || 'export.xlsx';
+      fieldMap = exportOptions.fieldMap || [];
+    } else {
+      // 旧的调用方式，只有数据和文件名
+      data = exportOptions;
+      filename = arguments[2] || 'export.xlsx';
+      fieldMap = [];
+    }
+
+    // 根据字段类型处理数据
+    const processedData = data.map(row => {
+      const processedRow = {};
+      for (const key in row) {
+        const value = row[key];
+        // 查找字段信息
+        const fieldInfo = fieldMap.find(field => field.name === key);
+
+        if (fieldInfo) {
+          // 根据字段类型处理
+          switch (fieldInfo.type) {
+            // 日期时间类型 - 转换为字符串格式
+            case 7:   // MYSQL_TYPE_TIMESTAMP
+            case 10:  // MYSQL_TYPE_DATE
+            case 11:  // MYSQL_TYPE_TIME
+            case 12:  // MYSQL_TYPE_DATETIME
+            case 13:  // MYSQL_TYPE_YEAR
+              if (value instanceof Date) {
+                // 根据具体类型格式化日期
+                switch (fieldInfo.type) {
+                  case 10: // DATE
+                    const date = new Date(value);
+                    const year = date.getFullYear();
+                    const month = String(date.getMonth() + 1).padStart(2, '0');
+                    const day = String(date.getDate()).padStart(2, '0');
+                    processedRow[key] = `${year}-${month}-${day}`;
+                    break;
+
+                  case 11: // TIME
+                    const time = new Date(value);
+                    const hours = String(time.getHours()).padStart(2, '0');
+                    const minutes = String(time.getMinutes()).padStart(2, '0');
+                    const seconds = String(time.getSeconds()).padStart(2, '0');
+                    processedRow[key] = `${hours}:${minutes}:${seconds}`;
+                    break;
+
+                  case 13: // YEAR
+                    const yearValue = new Date(value);
+                    processedRow[key] = yearValue.getFullYear().toString();
+                    break;
+
+                  default: // DATETIME, TIMESTAMP
+                    const datetime = new Date(value);
+                    const fullYear = datetime.getFullYear();
+                    const fullMonth = String(datetime.getMonth() + 1).padStart(2, '0');
+                    const fullDay = String(datetime.getDate()).padStart(2, '0');
+                    const fullHours = String(datetime.getHours()).padStart(2, '0');
+                    const fullMinutes = String(datetime.getMinutes()).padStart(2, '0');
+                    const fullSeconds = String(datetime.getSeconds()).padStart(2, '0');
+                    processedRow[key] = `${fullYear}-${fullMonth}-${fullDay} ${fullHours}:${fullMinutes}:${fullSeconds}`;
+                }
+              } else if (typeof value === 'string' && !isNaN(Date.parse(value))) {
+                // 尝试解析日期字符串
+                const date = new Date(value);
+                if (!isNaN(date.getTime())) {
+                  switch (fieldInfo.type) {
+                    case 10: // DATE
+                      const year = date.getFullYear();
+                      const month = String(date.getMonth() + 1).padStart(2, '0');
+                      const day = String(date.getDate()).padStart(2, '0');
+                      processedRow[key] = `${year}-${month}-${day}`;
+                      break;
+
+                    case 11: // TIME
+                      const hours = String(date.getHours()).padStart(2, '0');
+                      const minutes = String(date.getMinutes()).padStart(2, '0');
+                      const seconds = String(date.getSeconds()).padStart(2, '0');
+                      processedRow[key] = `${hours}:${minutes}:${seconds}`;
+                      break;
+
+                    case 13: // YEAR
+                      processedRow[key] = date.getFullYear().toString();
+                      break;
+
+                    default: // DATETIME, TIMESTAMP
+                      const fullYear = date.getFullYear();
+                      const fullMonth = String(date.getMonth() + 1).padStart(2, '0');
+                      const fullDay = String(date.getDate()).padStart(2, '0');
+                      const fullHours = String(date.getHours()).padStart(2, '0');
+                      const fullMinutes = String(date.getMinutes()).padStart(2, '0');
+                      const fullSeconds = String(date.getSeconds()).padStart(2, '0');
+                      processedRow[key] = `${fullYear}-${fullMonth}-${fullDay} ${fullHours}:${fullMinutes}:${fullSeconds}`;
+                  }
+                } else {
+                  processedRow[key] = value;
+                }
+              } else if (value === null || value === undefined) {
+                processedRow[key] = '';
+              } else {
+                processedRow[key] = value.toString();
+              }
+              break;
+
+            // 数值类型
+            case 1:   // MYSQL_TYPE_TINY
+            case 2:   // MYSQL_TYPE_SHORT
+            case 3:   // MYSQL_TYPE_LONG
+            case 8:   // MYSQL_TYPE_LONGLONG
+            case 9:   // MYSQL_TYPE_INT24
+            case 4:   // MYSQL_TYPE_FLOAT
+            case 5:   // MYSQL_TYPE_DOUBLE
+            case 246: // MYSQL_TYPE_DECIMAL
+              if (value === null || value === undefined || value === '') {
+                processedRow[key] = value;
+              } else {
+                const num = Number(value);
+                processedRow[key] = isNaN(num) ? value : num;
+              }
+              break;
+
+            default:
+              processedRow[key] = value;
+          }
+        } else {
+          // 没有字段信息时，使用通用处理方式
+          if (value instanceof Date) {
+            const date = new Date(value);
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            const seconds = String(date.getSeconds()).padStart(2, '0');
+            processedRow[key] = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+          } else if (typeof value === 'string' && !isNaN(Date.parse(value))) {
+            // 尝试解析日期字符串
+            const date = new Date(value);
+            if (!isNaN(date.getTime())) {
+              const year = date.getFullYear();
+              const month = String(date.getMonth() + 1).padStart(2, '0');
+              const day = String(date.getDate()).padStart(2, '0');
+              const hours = String(date.getHours()).padStart(2, '0');
+              const minutes = String(date.getMinutes()).padStart(2, '0');
+              const seconds = String(date.getSeconds()).padStart(2, '0');
+              processedRow[key] = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+            } else {
+              processedRow[key] = value;
+            }
+          } else {
+            processedRow[key] = value;
+          }
+        }
+      }
+      return processedRow;
+    });
+
     const workbook = xlsx.utils.book_new();
-    const worksheet = xlsx.utils.json_to_sheet(data);
+    const worksheet = xlsx.utils.json_to_sheet(processedData);
     xlsx.utils.book_append_sheet(workbook, worksheet, 'Sheet1');
 
     // 让用户选择保存位置
@@ -289,11 +449,171 @@ ipcMain.handle('export-to-excel', async (event, data, filename) => {
   }
 });
 
+
 // 导出数据到 CSV
-ipcMain.handle('export-to-csv', async (event, data) => {
+ipcMain.handle('export-to-csv', async (event, exportOptions) => {
   try {
-    const { data: exportData, columns } = data;
-    const worksheet = xlsx.utils.json_to_sheet(exportData);
+    // 处理传入的参数，兼容旧版本调用方式
+    let data, columns, fieldMap;
+    if (typeof exportOptions === 'object' && exportOptions !== null) {
+      // 新的调用方式，包含fieldMap等信息
+      data = exportOptions.data;
+      columns = exportOptions.columns;
+      fieldMap = exportOptions.fieldMap || [];
+    } else {
+      // 旧的调用方式
+      data = exportOptions.data;
+      columns = exportOptions.columns;
+      fieldMap = [];
+    }
+
+    // 根据字段类型处理数据
+    const processedData = data.map(row => {
+      const processedRow = {};
+      for (const key in row) {
+        const value = row[key];
+        // 查找字段信息
+        const fieldInfo = fieldMap.find(field => field.name === key);
+
+        if (fieldInfo) {
+          // 根据字段类型处理
+          switch (fieldInfo.type) {
+            // 日期时间类型 - 转换为字符串格式
+            case 7:   // MYSQL_TYPE_TIMESTAMP
+            case 10:  // MYSQL_TYPE_DATE
+            case 11:  // MYSQL_TYPE_TIME
+            case 12:  // MYSQL_TYPE_DATETIME
+            case 13:  // MYSQL_TYPE_YEAR
+              if (value instanceof Date) {
+                // 根据具体类型格式化日期
+                switch (fieldInfo.type) {
+                  case 10: // DATE
+                    const date = new Date(value);
+                    const year = date.getFullYear();
+                    const month = String(date.getMonth() + 1).padStart(2, '0');
+                    const day = String(date.getDate()).padStart(2, '0');
+                    processedRow[key] = `${year}-${month}-${day}`;
+                    break;
+
+                  case 11: // TIME
+                    const time = new Date(value);
+                    const hours = String(time.getHours()).padStart(2, '0');
+                    const minutes = String(time.getMinutes()).padStart(2, '0');
+                    const seconds = String(time.getSeconds()).padStart(2, '0');
+                    processedRow[key] = `${hours}:${minutes}:${seconds}`;
+                    break;
+
+                  case 13: // YEAR
+                    const yearValue = new Date(value);
+                    processedRow[key] = yearValue.getFullYear().toString();
+                    break;
+
+                  default: // DATETIME, TIMESTAMP
+                    const datetime = new Date(value);
+                    const fullYear = datetime.getFullYear();
+                    const fullMonth = String(datetime.getMonth() + 1).padStart(2, '0');
+                    const fullDay = String(datetime.getDate()).padStart(2, '0');
+                    const fullHours = String(datetime.getHours()).padStart(2, '0');
+                    const fullMinutes = String(datetime.getMinutes()).padStart(2, '0');
+                    const fullSeconds = String(datetime.getSeconds()).padStart(2, '0');
+                    processedRow[key] = `${fullYear}-${fullMonth}-${fullDay} ${fullHours}:${fullMinutes}:${fullSeconds}`;
+                }
+              } else if (typeof value === 'string' && !isNaN(Date.parse(value))) {
+                // 尝试解析日期字符串
+                const date = new Date(value);
+                if (!isNaN(date.getTime())) {
+                  switch (fieldInfo.type) {
+                    case 10: // DATE
+                      const year = date.getFullYear();
+                      const month = String(date.getMonth() + 1).padStart(2, '0');
+                      const day = String(date.getDate()).padStart(2, '0');
+                      processedRow[key] = `${year}-${month}-${day}`;
+                      break;
+
+                    case 11: // TIME
+                      const hours = String(date.getHours()).padStart(2, '0');
+                      const minutes = String(date.getMinutes()).padStart(2, '0');
+                      const seconds = String(date.getSeconds()).padStart(2, '0');
+                      processedRow[key] = `${hours}:${minutes}:${seconds}`;
+                      break;
+
+                    case 13: // YEAR
+                      processedRow[key] = date.getFullYear().toString();
+                      break;
+
+                    default: // DATETIME, TIMESTAMP
+                      const fullYear = date.getFullYear();
+                      const fullMonth = String(date.getMonth() + 1).padStart(2, '0');
+                      const fullDay = String(date.getDate()).padStart(2, '0');
+                      const fullHours = String(date.getHours()).padStart(2, '0');
+                      const fullMinutes = String(date.getMinutes()).padStart(2, '0');
+                      const fullSeconds = String(date.getSeconds()).padStart(2, '0');
+                      processedRow[key] = `${fullYear}-${fullMonth}-${fullDay} ${fullHours}:${fullMinutes}:${fullSeconds}`;
+                  }
+                } else {
+                  processedRow[key] = value;
+                }
+              } else if (value === null || value === undefined) {
+                processedRow[key] = '';
+              } else {
+                processedRow[key] = value.toString();
+              }
+              break;
+
+            // 数值类型
+            case 1:   // MYSQL_TYPE_TINY
+            case 2:   // MYSQL_TYPE_SHORT
+            case 3:   // MYSQL_TYPE_LONG
+            case 8:   // MYSQL_TYPE_LONGLONG
+            case 9:   // MYSQL_TYPE_INT24
+            case 4:   // MYSQL_TYPE_FLOAT
+            case 5:   // MYSQL_TYPE_DOUBLE
+            case 246: // MYSQL_TYPE_DECIMAL
+              if (value === null || value === undefined || value === '') {
+                processedRow[key] = value;
+              } else {
+                const num = Number(value);
+                processedRow[key] = isNaN(num) ? value : num;
+              }
+              break;
+
+            default:
+              processedRow[key] = value;
+          }
+        } else {
+          // 没有字段信息时，使用通用处理方式
+          if (value instanceof Date) {
+            const date = new Date(value);
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            const seconds = String(date.getSeconds()).padStart(2, '0');
+            processedRow[key] = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+          } else if (typeof value === 'string' && !isNaN(Date.parse(value))) {
+            // 尝试解析日期字符串
+            const date = new Date(value);
+            if (!isNaN(date.getTime())) {
+              const year = date.getFullYear();
+              const month = String(date.getMonth() + 1).padStart(2, '0');
+              const day = String(date.getDate()).padStart(2, '0');
+              const hours = String(date.getHours()).padStart(2, '0');
+              const minutes = String(date.getMinutes()).padStart(2, '0');
+              const seconds = String(date.getSeconds()).padStart(2, '0');
+              processedRow[key] = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+            } else {
+              processedRow[key] = value;
+            }
+          } else {
+            processedRow[key] = value;
+          }
+        }
+      }
+      return processedRow;
+    });
+
+    const worksheet = xlsx.utils.json_to_sheet(processedData);
     const csv = xlsx.utils.sheet_to_csv(worksheet);
 
     // 让用户选择保存位置
@@ -317,6 +637,8 @@ ipcMain.handle('export-to-csv', async (event, data) => {
     return { success: false, message: error.message };
   }
 });
+
+
 
 ipcMain.handle('export-to-sql', async (event, data) => {
   try {

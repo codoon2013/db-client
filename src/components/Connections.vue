@@ -85,10 +85,6 @@
         <el-form-item label="数据库类型" prop="type">
           <el-select v-model="connectionForm.type" placeholder="请选择数据库类型" style="width: 100%">
             <el-option label="MySQL" value="mysql" />
-            <el-option label="PostgreSQL" value="postgresql" />
-            <el-option label="SQLite" value="sqlite" />
-            <el-option label="SQL Server" value="sqlserver" />
-            <el-option label="Oracle" value="oracle" />
           </el-select>
         </el-form-item>
 
@@ -117,9 +113,9 @@
           />
         </el-form-item>
 
-        <el-form-item label="SSL">
+        <!-- <el-form-item label="SSL">
           <el-switch v-model="connectionForm.ssl" />
-        </el-form-item>
+        </el-form-item> -->
       </el-form>
 
       <template #footer>

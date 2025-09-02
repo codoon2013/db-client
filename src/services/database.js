@@ -266,9 +266,9 @@ class DatabaseService {
   async establishConnection (connectionConfig) {
     const connectionId = `${connectionConfig.id}`;
 
-    if (this.connections.has(connectionId)) {
-      return this.connections.get(connectionId);
-    }
+    // if (this.connections.has(connectionId)) {
+    //   return this.connections.get(connectionId);
+    // }
 
     let connection;
     switch (connectionConfig.type) {

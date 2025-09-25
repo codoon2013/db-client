@@ -1208,46 +1208,62 @@
       saveDialogVisible.value = false;
     };
 
+    // 去除 limit 子句
+    function removeLimitClause(sql) {
+      // 只处理最后的 limit 子句
+      return sql.replace(/\s+limit\s+\d+\s*;?$/i, '').replace(/;$/, '');
+    }
+
     const exportToExcel = async () => {
       if (!queryResult.value || !queryResult.value.success || !queryResult.value.data || queryResult.value.data.length === 0) {
         ElMessage.warning('没有可以导出的数据。');
         return;
       }
-      
       try {
+        // 重新执行无 limit 的 SQL 查询
+        let sql = currentSql.value || sqlQuery.value;
+        sql = removeLimitClause(sql);
+        const conn = availableConnections.value.find(c => c.id === selectedConnection.value);
+        if (!conn || conn.status !== 'connected') {
+          ElMessage.error('数据库未连接');
+          return;
+        }
+        const connectionId = conn.connectionId;
+        const result = await window.electronAPI.executeQuery(connectionId, sql);
+        if (!result.success || !result.data || result.data.length === 0) {
+          ElMessage.warning('没有可以导出的数据。');
+          return;
+        }
         // 对导出数据应用格式化
-        const formattedData = queryResult.value.data.map(row => {
+        const formattedData = result.data.map(row => {
           const formattedRow = {};
-          queryResult.value.columns.forEach(column => {
+          result.columns.forEach(column => {
             formattedRow[column] = formatCellValue(row[column], column);
           });
           return formattedRow;
         });
-        
         // 获取本地日期格式，避免时区问题
         const now = new Date();
         const year = now.getFullYear();
         const month = String(now.getMonth() + 1).padStart(2, '0');
         const day = String(now.getDate()).padStart(2, '0');
         const dateString = `${year}-${month}-${day}`;
-        
         const json = JSON.parse(JSON.stringify(formattedData));
         // 传递字段映射信息，以便在导出时更好地处理数据类型
         const exportOptions = {
           data: json,
-          fieldMap: queryResult.value.fieldMap,
+          fieldMap: result.fieldMap,
           filename: `query_result_${dateString}.xlsx`
         };
         const s = JSON.parse(JSON.stringify(exportOptions));
-        const result = await window.electronAPI.exportToExcel(s);
-        if (result.success) {
+        const exportResult = await window.electronAPI.exportToExcel(s);
+        if (exportResult.success) {
           ElMessage.success('结果已成功导出！');
         } else {
-          // 如果用户取消了保存，只在控制台记录，不打扰用户
-          if (result.message !== '导出已取消') {
-            ElMessage.error(result.message);
+          if (exportResult.message !== '导出已取消') {
+            ElMessage.error(exportResult.message);
           }
-          console.log(result.message);
+          console.log(exportResult.message);
         }
       } catch (error) {
         console.error('导出失败:', error);
@@ -1262,34 +1278,46 @@
         ElMessage.warning('没有可以导出的数据。');
         return;
       }
-      
       try {
+        // 重新执行无 limit 的 SQL 查询
+        let sql = currentSql.value || sqlQuery.value;
+        sql = removeLimitClause(sql);
+        const conn = availableConnections.value.find(c => c.id === selectedConnection.value);
+        if (!conn || conn.status !== 'connected') {
+          ElMessage.error('数据库未连接');
+          return;
+        }
+        const connectionId = conn.connectionId;
+        const result = await window.electronAPI.executeQuery(connectionId, sql);
+        if (!result.success || !result.data || result.data.length === 0) {
+          ElMessage.warning('没有可以导出的数据。');
+          return;
+        }
         // 对导出数据应用格式化
-        const formattedData = queryResult.value.data.map(row => {
+        const formattedData = result.data.map(row => {
           const formattedRow = {};
-          queryResult.value.columns.forEach(column => {
+          result.columns.forEach(column => {
             formattedRow[column] = formatCellValue(row[column], column);
           });
           return formattedRow;
         });
-        
         const data = JSON.parse(JSON.stringify(formattedData));
-        const columns = JSON.parse(JSON.stringify(queryResult.value.columns));
+        const columns = JSON.parse(JSON.stringify(result.columns));
         // 传递字段映射信息，以便在导出时更好地处理数据类型
         const exportOptions = {
           data,
           columns,
-          fieldMap: queryResult.value.fieldMap
+          fieldMap: result.fieldMap
         };
         const s = JSON.parse(JSON.stringify(exportOptions));
-        const result = await window.electronAPI.exportToCSV(s);
-        if (result.success) {
+        const exportResult = await window.electronAPI.exportToCSV(s);
+        if (exportResult.success) {
           ElMessage.success('结果已成功导出为CSV！');
         } else {
-          if (result.message !== '导出已取消') {
-            ElMessage.error(result.message);
+          if (exportResult.message !== '导出已取消') {
+            ElMessage.error(exportResult.message);
           }
-          console.log(result.message);
+          console.log(exportResult.message);
         }
       } catch (error) {
         console.error('导出CSV失败:', error);
@@ -1298,22 +1326,35 @@
     };
 
     const exportToSQL = async () => {
-      if (!queryResult.value || !queryResult.value.success || !queryResult.value.data || queryResult.value.data.length === 0) {
+      if (!queryResult.value || !queryResult.value.success || !queryResult.value.data || !queryResult.value.data.length === 0) {
         ElMessage.warning('没有可以导出的数据。');
         return;
       }
-      
       try {
-        const data = JSON.parse(JSON.stringify(queryResult.value.data));
-        const columns = JSON.parse(JSON.stringify(queryResult.value.columns));
-        const result = await window.electronAPI.exportToSQL({ data, columns });
-        if (result.success) {
+        // 重新执行无 limit 的 SQL 查询
+        let sql = currentSql.value || sqlQuery.value;
+        sql = removeLimitClause(sql);
+        const conn = availableConnections.value.find(c => c.id === selectedConnection.value);
+        if (!conn || conn.status !== 'connected') {
+          ElMessage.error('数据库未连接');
+          return;
+        }
+        const connectionId = conn.connectionId;
+        const result = await window.electronAPI.executeQuery(connectionId, sql);
+        if (!result.success || !result.data || result.data.length === 0) {
+          ElMessage.warning('没有可以导出的数据。');
+          return;
+        }
+        const data = JSON.parse(JSON.stringify(result.data));
+        const columns = JSON.parse(JSON.stringify(result.columns));
+        const exportResult = await window.electronAPI.exportToSQL({ data, columns });
+        if (exportResult.success) {
           ElMessage.success('结果已成功导出为SQL！');
         } else {
-          if (result.message !== '导出已取消') {
-            ElMessage.error(result.message);
+          if (exportResult.message !== '导出已取消') {
+            ElMessage.error(exportResult.message);
           }
-          console.log(result.message);
+          console.log(exportResult.message);
         }
       } catch (error) {
         console.error('导出SQL失败:', error);

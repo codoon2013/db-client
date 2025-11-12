@@ -3,17 +3,7 @@
     <el-container class="app-container">
       <!-- 头部 -->
       <el-header class="app-header"  style="display:none">
-        <!-- <div class="header-left">
-          <el-icon class="logo-icon"><Database /></el-icon>
-          <span class="app-title">DB Client</span>
-        </div> -->
         <div class="header-right">
-          <!-- <el-button-group>
-            <el-button size="small" @click="showAbout">
-              <el-icon><InfoFilled /></el-icon>
-              关于
-            </el-button>
-          </el-button-group> -->
         </div>
       </el-header>
 
@@ -56,26 +46,25 @@
 
         <!-- 主内容区 -->
         <el-main class="app-main">
-          <component :is="currentComponent" />
+          <el-tabs
+            v-model="editableTabsValue"
+            type="card"
+            closable
+            @tab-remove="removeTab"
+            @tab-click="clickTab"
+          >
+            <el-tab-pane
+              v-for="item in editableTabs"
+              :key="item.name"
+              :label="item.title"
+              :name="item.name"
+            >
+              <component :is="item.component" />
+            </el-tab-pane>
+          </el-tabs>
         </el-main>
       </el-container>
     </el-container>
-
-    <!-- 关于对话框 -->
-    <el-dialog
-      v-model="aboutVisible"
-      title="关于 DB Client"
-      width="400px"
-      center
-    >
-      <div class="about-content">
-        <el-icon class="about-icon"><Database /></el-icon>
-        <h3>DB Client</h3>
-        <p>版本: {{ appVersion }}</p>
-        <p>基于 Electron + Vue + Element Plus 构建</p>
-        <p>一个现代化的数据库客户端工具</p>
-      </div>
-    </el-dialog>
   </div>
 </template>
 
@@ -109,30 +98,64 @@ export default {
   },
   setup() {
     const activeMenu = ref('dashboard');
-    const currentComponent = ref('Dashboard');
     const aboutVisible = ref(false);
     const appVersion = ref('1.0.0');
     const sidebarCollapsed = ref(false); 
+    
+    // tabs 相关数据
+    const editableTabsValue = ref('dashboard');
+    const editableTabs = ref([
+      {
+        title: '数据仪表盘',
+        name: 'dashboard',
+        component: 'Dashboard'
+      }
+    ]);
+    
     // 菜单选择处理
     const handleMenuSelect = (index) => {
       activeMenu.value = index;
-      switch (index) {
-        case 'dashboard':
-          currentComponent.value = 'Dashboard';
-          break;
-        case 'connections':
-          currentComponent.value = 'Connections';
-          break;
-        case 'query':
-          currentComponent.value = 'QueryEditor';
-          break;
-        case 'tables':
-          currentComponent.value = 'Tables';
-          break;
-        case 'settings':
-          currentComponent.value = 'Settings';
-          break;
+      
+      // 查找或创建标签页
+      let tab = editableTabs.value.find(tab => tab.name === index);
+      
+      if (!tab) {
+        // 如果标签页不存在，则创建新标签页
+        let title = '';
+        let component = '';
+        
+        switch (index) {
+          case 'dashboard':
+            title = '数据仪表盘';
+            component = 'Dashboard';
+            break;
+          case 'connections':
+            title = '数据库连接';
+            component = 'Connections';
+            break;
+          case 'query':
+            title = '查询编辑器';
+            component = 'QueryEditor';
+            break;
+          case 'tables':
+            title = '数据表管理';
+            component = 'Tables';
+            break;
+          case 'settings':
+            title = '设置';
+            component = 'Settings';
+            break;
+        }
+        
+        editableTabs.value.push({
+          title: title,
+          name: index,
+          component: component
+        });
       }
+      
+      // 设置当前激活的标签页
+      editableTabsValue.value = index;
     };
 
     // 切换侧边栏显示/隐藏
@@ -141,9 +164,32 @@ export default {
       sidebarCollapsed.value = !sidebarCollapsed.value;
     };
 
-    // 显示关于对话框
-    const showAbout = () => {
-      aboutVisible.value = true;
+    
+
+    // 标签页点击事件
+    const clickTab = (tab) => {
+      activeMenu.value = tab.props.name;
+    };
+    
+    // 删除标签页
+    const removeTab = (targetName) => {
+      const tabs = editableTabs.value;
+      let activeName = editableTabsValue.value;
+      
+      if (activeName === targetName) {
+        tabs.forEach((tab, index) => {
+          if (tab.name === targetName) {
+            const nextTab = tabs[index + 1] || tabs[index - 1];
+            if (nextTab) {
+              activeName = nextTab.name;
+            }
+          }
+        });
+      }
+      
+      editableTabsValue.value = activeName;
+      activeMenu.value = activeName;
+      editableTabs.value = tabs.filter(tab => tab.name !== targetName);
     };
 
     // 处理菜单事件
@@ -157,9 +203,7 @@ export default {
           ElMessage.info('打开功能');
         });
 
-        window.electronAPI.onMenuAbout(() => {
-          showAbout();
-        });
+        
       }
     };
 
@@ -189,13 +233,14 @@ export default {
 
     return {
       activeMenu,
-      currentComponent,
-      aboutVisible,
       appVersion,
       handleMenuSelect,
-      showAbout,
       sidebarCollapsed, // 返回侧边栏折叠状态
-      toggleSidebar // 返回切换函数
+      toggleSidebar, // 返回切换函数
+      editableTabsValue,
+      editableTabs,
+      clickTab,
+      removeTab
     };
   }
 };
@@ -307,4 +352,20 @@ export default {
   margin-bottom: 8px;
   color: #606266;
 }
-</style> 
+
+.el-tabs {
+  height: 100%;
+}
+
+.el-tabs__content {
+  height: calc(100% - 55px);
+}
+
+.el-tab-pane {
+  height: 100%;
+}
+
+.el-tabs__header {
+  margin-bottom: 10px;
+}
+</style>

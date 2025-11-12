@@ -46,7 +46,7 @@
           </template>
           
           <div class="sql-editor" :style="{height: editorHeight + 'px'}">
-            <div id="editor" style="width:100%;height:100%"></div>
+            <div :id="editorId" style="width:100%;height:100%"></div>
             <div
               class="resize-bar"
               @mousedown="startResize"
@@ -257,6 +257,15 @@
     // import { editor as MonacoEditor } from 'monaco-editor';  
     import * as MonacoEditor from 'monaco-editor';
 
+    const props = defineProps({
+    tabId: {
+      type: [Number, String],
+      default: null
+    }
+  });
+
+    const editorId = ref(`editor_${props.tabId}`);
+    
     // 添加编辑相关的响应式数据
     const editingRow = ref(-1);
     const editDialogVisible = ref(false);
@@ -930,13 +939,18 @@
         if (autoSaveInterval) {
             clearInterval(autoSaveInterval);
         }
+        
+        // 销毁 Monaco 编辑器实例
+        if (monacoInstance) {
+            monacoInstance.dispose();
+        }
     });
 
     onMounted(() => {
-      const dom = document.getElementById('editor');
+      const dom = document.getElementById(editorId.value);
       if (dom) {
         // 尝试从localStorage加载保存的内容
-        const savedContent = localStorage.getItem('queryEditorContent');
+        const savedContent = localStorage.getItem(`queryEditorContent_${editorId.value}`);
         const initialValue = savedContent || sqlQuery.value;
 
         monacoInstance = MonacoEditor.editor.create(dom, {
@@ -959,7 +973,7 @@
         autoSaveInterval = setInterval(() => {
           if (monacoInstance) {
             const content = monacoInstance.getValue();
-            localStorage.setItem('queryEditorContent', content);
+            localStorage.setItem(`queryEditorContent_${editorId.value}`, content);
           }
         }, 3000);
 

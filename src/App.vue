@@ -59,7 +59,7 @@
               :label="item.title"
               :name="item.name"
             >
-              <component :is="item.component" />
+              <component :is="item.component"  v-bind="item.props || {}" />
             </el-tab-pane>
           </el-tabs>
         </el-main>
@@ -112,50 +112,79 @@ export default {
       }
     ]);
     
-    // 菜单选择处理
+        // 菜单选择处理
     const handleMenuSelect = (index) => {
       activeMenu.value = index;
       
-      // 查找或创建标签页
-      let tab = editableTabs.value.find(tab => tab.name === index);
-      
-      if (!tab) {
-        // 如果标签页不存在，则创建新标签页
-        let title = '';
-        let component = '';
+      // 为查询编辑器创建唯一标识，支持多开
+      let tabName = index;
+      let tabTitle = '';
+      let component = '';
+      let newIndex = 0;
+      // 如果是查询编辑器，生成唯一标识
+      if (index === 'query') {
+        const timestamp = Date.now();
+        const randomId = Math.random().toString(36).substr(2, 5);
+        tabName = `query_${timestamp}_${randomId}`;
+        // 计算已有查询编辑器的最大序号，生成查询编辑器(n) 格式的标题
+        const existing = editableTabs.value
+          .filter(t => t.title && t.title.startsWith('查询编辑器('))
+          .map(t => {
+            const m = t.title.match(/查询编辑器\((\d+)\)/);
+            return m ? parseInt(m[1], 10) : 0;
+          });
+        const maxIndex = existing.length ? Math.max(...existing) : 0;
+        newIndex = maxIndex + 1;
+        tabTitle = `查询编辑器(${newIndex})`;
+        component = 'QueryEditor';
+      } else {
+        // 查找或创建其他标签页
+        let tab = editableTabs.value.find(tab => tab.name === index);
         
-        switch (index) {
-          case 'dashboard':
-            title = '数据仪表盘';
-            component = 'Dashboard';
-            break;
-          case 'connections':
-            title = '数据库连接';
-            component = 'Connections';
-            break;
-          case 'query':
-            title = '查询编辑器';
-            component = 'QueryEditor';
-            break;
-          case 'tables':
-            title = '数据表管理';
-            component = 'Tables';
-            break;
-          case 'settings':
-            title = '设置';
-            component = 'Settings';
-            break;
+        if (!tab) {
+          // 设置标签页标题和组件
+          switch (index) {
+            case 'dashboard':
+              tabTitle = '数据仪表盘';
+              component = 'Dashboard';
+              break;
+            case 'connections':
+              tabTitle = '数据库连接';
+              component = 'Connections';
+              break;
+            case 'tables':
+              tabTitle = '数据表管理';
+              component = 'Tables';
+              break;
+            case 'settings':
+              tabTitle = '设置';
+              component = 'Settings';
+              break;
+          }
+          
+          editableTabs.value.push({
+            title: tabTitle,
+            name: index,
+            component: component
+          });
         }
+      }
+      
+      // 如果是查询编辑器，每次都创建新标签页
+      if (index === 'query') {
         
         editableTabs.value.push({
-          title: title,
-          name: index,
-          component: component
+          title: tabTitle,
+          name: tabName,
+          component: component,
+          props: {
+            tabId: newIndex
+          }
         });
       }
       
       // 设置当前激活的标签页
-      editableTabsValue.value = index;
+      editableTabsValue.value = tabName;
     };
 
     // 切换侧边栏显示/隐藏
@@ -171,11 +200,30 @@ export default {
       activeMenu.value = tab.props.name;
     };
     
+    
     // 删除标签页
     const removeTab = (targetName) => {
       const tabs = editableTabs.value;
       let activeName = editableTabsValue.value;
       
+      // 如果关闭的是查询编辑器标签页，直接关闭
+      if (targetName.startsWith('query_')) {
+        // 如果关闭的是当前激活的标签页，需要切换到其他标签页
+        if (activeName === targetName) {
+          const targetIndex = tabs.findIndex(tab => tab.name === targetName);
+          const nextTab = tabs[targetIndex - 1] || tabs[targetIndex + 1];
+          if (nextTab) {
+            activeName = nextTab.name;
+          }
+        }
+        
+        editableTabsValue.value = activeName;
+        activeMenu.value = activeName.startsWith('query_') ? 'query' : activeName;
+        editableTabs.value = tabs.filter(tab => tab.name !== targetName);
+        return;
+      }
+      
+      // 对于非查询编辑器标签页，保持原有逻辑
       if (activeName === targetName) {
         tabs.forEach((tab, index) => {
           if (tab.name === targetName) {
@@ -191,7 +239,6 @@ export default {
       activeMenu.value = activeName;
       editableTabs.value = tabs.filter(tab => tab.name !== targetName);
     };
-
     // 处理菜单事件
     const handleMenuEvents = () => {
       if (window.electronAPI) {

@@ -126,9 +126,9 @@
               </div>
 
               <!-- 数据表格 -->
-              <div v-if="queryResult.data && queryResult.data.length > 0" class="result-table">
+              <div  class="result-table">
                 <el-table 
-                  :data="queryResult.data" 
+                  :data="queryResult.data || []" 
                   style="width: 100%"
                   max-height="400"
                   border
@@ -213,12 +213,6 @@
                   </template>
                 </el-dialog>  
 
-              </div>
-
-              <!-- 无数据结果 -->
-              <div v-else class="no-data">
-                <el-icon><Document /></el-icon>
-                <p>查询完成，无数据返回</p>
               </div>
             </div>
           </div>

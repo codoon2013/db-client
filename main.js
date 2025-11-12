@@ -216,7 +216,8 @@ ipcMain.handle('execute-query', async (event, connectionId, query) => {
       } else {
         fieldMap = [];
       }
-      columns = rows.length > 0 ? Object.keys(rows[0]) : [];
+
+      columns = rows.length > 0 ? Object.keys(rows[0]) : fields.map(field => field.name);
       affectedRows = fields ? rows.length : rows.changedRows;
 
     } else if (connection.query) {

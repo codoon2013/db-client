@@ -21,13 +21,9 @@
       </template>
 
       <el-table :data="connections" style="width: 100%;margin: 0 0 20px 0" border>;">
-        <el-table-column prop="name" label="连接名称" width="200">
-          <template #default="{ row }">
-            <div class="connection-name">
-              <el-icon class="connection-icon"><Database /></el-icon>
-              <span>{{ row.name }}</span>
-            </div>
-          </template>
+        <el-table-column prop="id" label="id" width="60">
+        </el-table-column>
+        <el-table-column prop="name" label="连接名称" min-width="200">
         </el-table-column>
         <el-table-column prop="type" label="数据库类型" width="120">
           <template #default="{ row }">
@@ -37,22 +33,15 @@
         <!-- <el-table-column prop="host" label="主机地址" width="150" /> -->
         <el-table-column prop="port" label="端口" width="80" />
         <el-table-column prop="database" label="数据库" width="120" />
-        <el-table-column prop="status" label="状态" width="100">
-          <template #default="{ row }">
-            <el-tag :type="row.status === 'connected' ? 'success' : 'info'" size="small">
-              {{ row.status === 'connected' ? '已连接' : '未连接' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作"  class-name="operation">
+        <el-table-column label="操作"  class-name="operation" width="200">
           <template #default="{ row }" >
             <el-button-group>
               <el-button 
-                :type="row.status === 'connected' ? 'warning' : 'success'" 
+                type="success" 
                 size="small"
                 @click="toggleConnection(row)"
               >
-                {{ row.status === 'connected' ? '断开' : '连接' }}
+                测试链接
               </el-button>
               <el-button type="primary" size="small" @click="editConnection(row)">
                 编辑
@@ -140,32 +129,7 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 export default {
   name: 'Connections',
   setup() {
-    const connections = ref([
-      {
-        id: 1,
-        name: '本地MySQL',
-        type: 'mysql',
-        host: 'localhost',
-        port: 3306,
-        database: 'test',
-        username: 'root',
-        password: '',
-        ssl: false,
-        status: 'connected'
-      },
-      {
-        id: 2,
-        name: '测试PostgreSQL',
-        type: 'postgresql',
-        host: '192.168.1.100',
-        port: 5432,
-        database: 'postgres',
-        username: 'postgres',
-        password: '',
-        ssl: false,
-        status: 'disconnected'
-      }
-    ]);
+    const connections = ref([]);
 
     const connectionDialogVisible = ref(false);
     const isEditing = ref(false);
@@ -293,6 +257,7 @@ export default {
     };
 
     const toggleConnection = async (connection) => {
+      connection.status = 'disconnected'
       if (connection.status === 'connected') {
         try {
           await ElMessageBox.confirm('确定要断开连接吗？', '提示', {

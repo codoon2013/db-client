@@ -203,22 +203,29 @@ ipcMain.handle('execute-query', async (event, connectionId, query) => {
     }
     let result, columns, fieldMap, affectedRows;
     if (connection.execute) {
-      // MySQL
-      const [rows, fields] = await connection.query(query);
-      result = rows;
-      if (Array.isArray(fields)) {
-        fieldMap = fields.map(field => {
-          return {
-            name: field.name,
-            type: field.type
-          }
-        });
-      } else {
-        fieldMap = [];
-      }
+      // MySQL (mysql2 compatible)
+      // prefer execute when available; it returns [rows, fields]
+      const execFn = connection.execute ? connection.execute.bind(connection) : connection.query.bind(connection);
+      const [rows, fields] = await execFn(query);
 
-      columns = rows.length > 0 ? Object.keys(rows[0]) : fields.map(field => field.name);
-      affectedRows = fields ? rows.length : rows.changedRows;
+      // If rows is an Array -> SELECT result
+      if (Array.isArray(rows)) {
+        result = rows;
+        columns = rows.length > 0 ? Object.keys(rows[0]) : (Array.isArray(fields) ? fields.map(field => field.name) : []);
+        if (Array.isArray(fields)) {
+          fieldMap = fields.map(field => ({ name: field.name, type: field.type }));
+        } else {
+          fieldMap = [];
+        }
+        affectedRows = rows.length;
+      } else {
+        // Non-SELECT result (OkPacket)
+        // rows is an OkPacket-like object containing affectedRows/changedRows
+        result = [];
+        columns = [];
+        fieldMap = [];
+        affectedRows = (rows && (rows.affectedRows ?? rows.affected ?? rows.changedRows ?? rows.rowsAffected)) || 0;
+      }
 
     } else if (connection.query) {
       // PostgreSQL

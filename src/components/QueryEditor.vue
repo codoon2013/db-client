@@ -479,53 +479,36 @@
       // 移除注释和多余空格
       const cleanSql = sql.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--.*$/gm, '').trim();
       
-      // 转换为大写以便匹配
-      const upperSql = cleanSql.toUpperCase();
-      
-      // 处理 SHOW CREATE TABLE 语句
-      const showCreateMatch = cleanSql.match(/SHOW\s+CREATE\s+TABLE\s+([^\s;]+)/i);
-      if (showCreateMatch && showCreateMatch[1]) {
-        return showCreateMatch[1].replace(/`/g, ''); // 移除可能的反引号
+      // 只处理SELECT语句
+      if (!/^\s*select\b/i.test(cleanSql)) {
+        return null;
       }
       
-      // 处理 DESCRIBE/DESC 语句
-      const descMatch = cleanSql.match(/(?:DESCRIBE|DESC)\s+([^\s;]+)/i);
-      if (descMatch && descMatch[1]) {
-        return descMatch[1].replace(/`/g, '');
-      }
+      // 匹配 FROM 子句后的表名，考虑可能的复杂情况：
+      // 1. 带反引号的表名：FROM `table_name`
+      // 2. 带别名的表名：FROM table_name AS alias 或 FROM table_name alias
+      // 3. 带数据库前缀：FROM db_name.table_name
+      // 4. 后续可能有 WHERE, ORDER BY, LIMIT 等子句
+      const fromRegex = /FROM\s+(`[^`]+`|[\w$#]+(?:\.[\w$#]+)?)(?:\s+AS\s+[\w$#]+|\s+[\w$#]+)?\s*(?:WHERE|ORDER\s+BY|GROUP\s+BY|LIMIT|HAVING|;|$)/i;
+      const match = cleanSql.match(fromRegex);
       
-      // 处理标准的 SELECT ... FROM 语句
-      const fromRegex = /FROM\s+([^\s,)(;]+)/i;
-      const fromMatch = cleanSql.match(fromRegex);
-      
-      if (fromMatch && fromMatch[1]) {
-        // 移除可能的别名（AS 或空格后的内容）
-        const tableName = fromMatch[1].split(/\s+|AS/i)[0];
+      if (match && match[1]) {
         // 移除可能的反引号
-        return tableName.replace(/`/g, '');
+        return match[1].replace(/`/g, '');
       }
       
-      // 更复杂的匹配，处理多表查询等情况
-      const complexFromRegex = /FROM\s+([^;]*?)(?:\s+WHERE|\s+GROUP|\s+ORDER|\s+LIMIT|\s*$)/i;
-      const complexMatch = cleanSql.match(complexFromRegex);
+      // 更简单的备用匹配方式
+      const simpleFromRegex = /FROM\s+(`[^`]+`|[\w$#]+(?:\.[\w$#]+)?)(?:\s+|$)/i;
+      const simpleMatch = cleanSql.match(simpleFromRegex);
       
-      if (complexMatch && complexMatch[1]) {
-        // 获取第一个表名
-        const tables = complexMatch[1].split(',').map(table => table.trim());
-        if (tables.length > 0) {
-          // 返回第一个表名，移除别名和引号
-          return tables[0].split(/\s+|AS/i)[0].replace(/`/g, '');
-        }
-      }
-      
-      // 对于其他 DDL/DML 语句 (INSERT, UPDATE, DELETE, etc.)
-      const ddlMatches = cleanSql.match(/(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|TRUNCATE\s+TABLE|ALTER\s+TABLE|DROP\s+TABLE)\s+([^\s(;]+)/i);
-      if (ddlMatches && ddlMatches[1]) {
-        return ddlMatches[1].replace(/`/g, '');
+      if (simpleMatch && simpleMatch[1]) {
+        // 移除可能的反引号
+        return simpleMatch[1].replace(/`/g, '');
       }
       
       return null;
     };
+
 
     // 关闭编辑对话框前的处理
     const handleEditDialogClose = (done) => {
@@ -594,9 +577,60 @@
         queryResult.value.columns.forEach(column => {
           if (column !== primaryKey) {
             // 只有当值发生变化时才添加到更新列表中
-            if (editForm[column] !== originalRowData.value[column]) {
-              const value = editForm[column];
-              setParts.push(`${column} = '${value}'`);
+            const originalValue = originalRowData.value[column];
+            const currentValue = editForm[column];
+            
+            // 使用formatCellValue处理原始值再进行比较，确保比较的一致性
+            const formattedOriginalValue = formatCellValue(originalValue, column);
+            
+            // 特殊处理数字类型比较
+            let isValueChanged = false;
+            
+            if (queryResult.value && queryResult.value.fieldMap) {
+              const fieldInfo = queryResult.value.fieldMap.find(field => field.name === column);
+              if (fieldInfo) {
+                // 数字类型字段的特殊比较逻辑
+                switch (fieldInfo.type) {
+                  case 1:   // MYSQL_TYPE_TINY
+                  case 2:   // MYSQL_TYPE_SHORT
+                  case 3:   // MYSQL_TYPE_LONG
+                  case 8:   // MYSQL_TYPE_LONGLONG
+                  case 9:   // MYSQL_TYPE_INT24
+                  case 4:   // MYSQL_TYPE_FLOAT
+                  case 5:   // MYSQL_TYPE_DOUBLE
+                  case 246: // MYSQL_TYPE_DECIMAL
+                    // 对于数字类型，将两个值都转换为数字进行比较
+                    const originalNum = formattedOriginalValue === '' || formattedOriginalValue === null ? null : Number(formattedOriginalValue);
+                    const currentNum = currentValue === '' || currentValue === null ? null : Number(currentValue);
+                    
+                    // 处理NaN情况
+                    if (isNaN(originalNum) && isNaN(currentNum)) {
+                      isValueChanged = false;
+                    } else if (originalNum === null && currentNum === null) {
+                      isValueChanged = false;
+                    } else if (originalNum === null || currentNum === null) {
+                      isValueChanged = true;
+                    } else {
+                      isValueChanged = originalNum !== currentNum;
+                    }
+                    break;
+                    
+                  default:
+                    // 其他类型使用原有比较方式
+                    isValueChanged = formattedOriginalValue !== currentValue;
+                }
+              } else {
+                // 没有字段信息时使用原有比较方式
+                isValueChanged = formattedOriginalValue !== currentValue;
+              }
+            } else {
+              // 没有字段映射信息时使用原有比较方式
+              isValueChanged = formattedOriginalValue !== currentValue;
+            }
+            
+            if (isValueChanged) {
+              // 使用当前表单中的值（已格式化）
+              setParts.push(`${column} = '${currentValue}'`);
             }
           } else if (newPrimaryKeyValue !== primaryKeyValue) {
             // 如果主键值也发生了变化

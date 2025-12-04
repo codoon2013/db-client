@@ -142,7 +142,14 @@
                     min-width="120"
                   >
                     <template #default="scope">
-                      {{ formatCellValue(scope.row[column], column)  }}
+                      <div 
+                        class="cell-container"
+                        @dblclick="startCellEdit(scope.row, scope.column, scope.$index, column)"
+                      >
+                        <span>
+                          {{ formatCellValue(scope.row[column], column) }}
+                        </span>
+                      </div>
                     </template>
                   </el-table-column>
                   <el-table-column
@@ -242,11 +249,86 @@
         </span>
       </template>
     </el-dialog>
+
+    <!-- 单元格编辑对话框 -->
+    <el-dialog 
+      v-model="cellEditDialogVisible" 
+      title="编辑单元格" 
+      width="600px"
+      :before-close="handleCellEditDialogClose"
+    >
+      <el-form 
+        label-width="120px"
+        :model="cellEditForm"
+      >
+        <el-form-item label="主键ID">
+          <el-input 
+            v-model="cellEditForm.primaryKeyValue"
+            disabled
+          />
+        </el-form-item>
+        <el-form-item :label="`字段: ${cellEditing.columnName}`">
+          <!-- 根据字段类型显示不同的输入控件 -->
+          <el-input 
+             v-if="isTextFieldType(getFieldType(cellEditing.columnName)) || getFieldType(cellEditing.columnName) === 'text'"
+            v-model="cellEditForm.value"
+            ref="cellEditInput"
+            type="textarea"
+            :autosize="{ minRows: 2, maxRows: 4 }"
+          />
+          <el-input-number
+            v-else-if="isNumericFieldType(getFieldType(cellEditing.columnName))"
+            v-model="cellEditForm.numberValue"
+            ref="cellEditInput"
+            controls-position="right"
+            :precision="getFieldPrecision(cellEditing.columnName)"
+            style="width: 100%"
+          />
+          <el-date-picker
+            v-else-if="isDateFieldType(getFieldType(cellEditing.columnName))"
+            v-model="cellEditForm.dateValue"
+            ref="cellEditInput"
+            type="datetime"
+            value-format="YYYY-MM-DD HH:mm:ss"
+            format="YYYY-MM-DD HH:mm:ss"
+            style="width: 100%"
+          />
+          <el-switch
+            v-else-if="isBooleanFieldType(getFieldType(cellEditing.columnName))"
+            v-model="cellEditForm.booleanValue"
+            ref="cellEditInput"
+            active-text="是"
+            inactive-text="否"
+          />
+          <el-input
+            v-else
+            v-model="cellEditForm.value"
+            ref="cellEditInput"
+          />
+          <div class="field-type-info">
+            类型: {{ getFieldTypeName(getFieldType(cellEditing.columnName)) }}
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="cancelCellEdit" size="large">取消</el-button>
+          <el-button 
+            type="primary" 
+            @click="confirmCellEdit"
+            size="large"
+          >
+            确认
+          </el-button>
+        </span>
+      </template>
+    </el-dialog>
+    <!-- 编辑对话框 -->
   </div>
 </template>
 
 <script setup>
-    import { ref, reactive, onMounted, onUnmounted, computed, watch } from 'vue';
+    import { ref, reactive, onMounted, onUnmounted, computed, watch,nextTick } from 'vue';
     import { ElMessage,ElMessageBox } from 'element-plus';
     // import { editor as MonacoEditor } from 'monaco-editor';  
     import * as MonacoEditor from 'monaco-editor';
@@ -1599,6 +1681,244 @@
       }
     };
 
+    // 添加单元格编辑相关的响应式数据
+    const cellEditDialogVisible = ref(false);
+    const cellEditing = ref({
+      rowIndex: -1,
+      columnName: '',
+      editing: false
+    });
+    const cellEditForm = reactive({
+      value: '',
+      numberValue: 0,
+      dateValue: '',
+      booleanValue: false,
+      primaryKeyValue: ''
+    });
+    const cellEditInput = ref(null);
+
+    // 获取字段类型
+    const getFieldType = (columnName) => {
+      if (queryResult.value && queryResult.value.fieldMap) {
+        const fieldInfo = queryResult.value.fieldMap.find(field => field.name === columnName);
+        if (fieldInfo) {
+          return fieldInfo.type;
+        }
+      }
+      return null;
+    };
+
+    // 获取字段类型名称
+    const getFieldTypeName = (fieldType) => {
+      if (!fieldType) return '未知';
+      
+      const typeMap = {
+        1: 'Tiny Integer',
+        2: 'Short Integer',
+        3: 'Integer',
+        4: 'Float',
+        5: 'Double',
+        8: 'Long Integer',
+        9: 'Medium Integer',
+        10: 'Date',
+        11: 'Time',
+        12: 'DateTime',
+        13: 'Year',
+        16: 'Bit/Boolean',
+        252: 'Blob',
+        253: 'Varchar',
+        254: 'Char',
+        246: 'Decimal'
+      };
+      
+      return typeMap[fieldType] ? `${typeMap[fieldType]} (${fieldType})` : `未知类型(${fieldType})`;
+    };
+
+
+     // 判断是否为文本类型字段
+    const isTextFieldType = (fieldType) => {
+      const textTypes = [253, 254]; // VARCHAR and CHAR types
+      return textTypes.includes(fieldType);
+    };
+
+    // 判断是否为数值类型字段
+    const isNumericFieldType = (fieldType) => {
+      const numericTypes = [1, 2, 3, 4, 5, 8, 9, 246]; // 整数和浮点数类型
+      return numericTypes.includes(fieldType);
+    };
+
+    // 判断是否为日期类型字段
+    const isDateFieldType = (fieldType) => {
+      const dateTypes = [10, 11, 12, 13]; // 日期时间类型
+      return dateTypes.includes(fieldType);
+    };
+
+    // 判断是否为布尔类型字段
+    const isBooleanFieldType = (fieldType) => {
+      return fieldType === 16; // Bit/Boolean类型
+    };
+
+    // 获取数值字段精度
+    const getFieldPrecision = (columnName) => {
+      if (queryResult.value && queryResult.value.fieldMap) {
+        const fieldInfo = queryResult.value.fieldMap.find(field => field.name === columnName);
+        if (fieldInfo && fieldInfo.decimals !== undefined) {
+          return fieldInfo.decimals;
+        }
+      }
+      return 0; // 默认无小数位
+    };
+
+    // 添加单元格编辑相关的方法
+    const startCellEdit = (row, column, rowIndex, columnName) => {
+      // 只有在合适的情况下才允许编辑
+      if (!shouldShowActions(queryResult.value.data) || !isEditableTable(queryResult.value.data)) {
+        return;
+      }
+      
+      // 不允许编辑主键字段
+      const primaryKey = queryResult.value.columns[0];
+      if (columnName === primaryKey) {
+        ElMessage.warning('不能编辑主键字段');
+        return;
+      }
+      
+      cellEditing.value = {
+        rowIndex: rowIndex,
+        columnName: columnName,
+        editing: true
+      };
+      
+      // 根据字段类型设置初始值
+      const fieldType = getFieldType(columnName);
+      const fieldValue = row[columnName];
+      
+      if (isNumericFieldType(fieldType)) {
+        cellEditForm.numberValue = fieldValue !== null && fieldValue !== undefined ? 
+                                  Number(fieldValue) : 0;
+      } else if (isDateFieldType(fieldType)) {
+        cellEditForm.dateValue = fieldValue !== null && fieldValue !== undefined ? 
+                                new Date(fieldValue) : null;
+      } else if (isBooleanFieldType(fieldType)) {
+        cellEditForm.booleanValue = fieldValue === 1 || fieldValue === true || fieldValue === '1';
+      } else {
+        cellEditForm.value = fieldValue !== null && fieldValue !== undefined ? 
+                            fieldValue.toString() : '';
+      }
+                          
+      // 获取主键值
+      cellEditForm.primaryKeyValue = row[primaryKey] !== null && row[primaryKey] !== undefined ?
+                                   row[primaryKey].toString() : '';
+      
+      cellEditDialogVisible.value = true;
+      
+      // 等待DOM更新后聚焦到输入框
+      nextTick(() => {
+        if (cellEditInput.value && cellEditInput.value.focus) {
+          // 对于某些组件，可能需要特殊处理focus
+          if (typeof cellEditInput.value.focus === 'function') {
+            cellEditInput.value.focus();
+          } else if (cellEditInput.value.$el) {
+            const inputEl = cellEditInput.value.$el.querySelector('input');
+            if (inputEl) inputEl.focus();
+          }
+        }
+      });
+    };
+
+    const confirmCellEdit = async () => {
+      if (!cellEditing.value.editing) return;
+      
+      const { rowIndex, columnName } = cellEditing.value;
+      const fieldType = getFieldType(columnName);
+      
+      // 根据字段类型获取值
+      let newValue;
+      if (isNumericFieldType(fieldType)) {
+        newValue = cellEditForm.numberValue.toString();
+      } else if (isDateFieldType(fieldType)) {
+        newValue = cellEditForm.dateValue;
+      } else if (isBooleanFieldType(fieldType)) {
+        newValue = cellEditForm.booleanValue ? '1' : '0';
+      } else {
+        newValue = cellEditForm.value;
+      }
+      
+      const rowData = queryResult.value.data[rowIndex];
+      const oldValue = rowData[columnName] !== null && rowData[columnName] !== undefined ? 
+                       rowData[columnName].toString() : '';
+      
+      // 如果值没有改变，则直接取消编辑
+      if (newValue === oldValue) {
+        cancelCellEdit();
+        return;
+      }
+      
+      try {
+        const conn = availableConnections.value.find(c => c.id === selectedConnection.value);
+        if (!conn || conn.status !== 'connected') {
+          ElMessage.error('数据库未连接');
+          cancelCellEdit();
+          return;
+        }
+        
+        // 获取主键字段
+        const primaryKey = queryResult.value.columns[0]; // 简化处理，假设第一列为主键
+        const primaryKeyValue = cellEditForm.primaryKeyValue;
+        const tableName = currentTableName.value;
+        
+        if (!tableName) {
+          ElMessage.error('无法确定表名，更新失败');
+          cancelCellEdit();
+          return;
+        }
+        
+        // 构造UPDATE语句
+        // 注意：为防止SQL注入，实际项目中应使用参数化查询
+        const escapedNewValue = typeof newValue === 'string' ? newValue.replace(/'/g, "''") : newValue; // 简单转义单引号
+        const escapedPrimaryKeyValue = primaryKeyValue.replace(/'/g, "''");
+                                      
+        const sql = `UPDATE ${tableName} SET ${columnName} = '${escapedNewValue}' WHERE ${primaryKey} = '${escapedPrimaryKeyValue}'`;
+        const connectionId = conn.connectionId;
+        
+        const result = await window.electronAPI.executeQuery(connectionId, sql);
+        
+        if (result.success) {
+          // 更新表格中的数据
+          queryResult.value.data[rowIndex][columnName] = newValue;
+          ElMessage.success('更新成功');
+        } else {
+          ElMessage.error('更新失败：' + result.message);
+        }
+      } catch (error) {
+        ElMessage.error('更新失败：' + (error.message || error));
+      } finally {
+        cancelCellEdit();
+      }
+    };
+
+    const cancelCellEdit = () => {
+      cellEditDialogVisible.value = false;
+      cellEditing.value = {
+        rowIndex: -1,
+        columnName: '',
+        editing: false
+      };
+    };
+
+    // 关闭单元格编辑对话框前的处理
+    const handleCellEditDialogClose = (done) => {
+      ElMessageBox.confirm('确认关闭编辑窗口吗？未保存的更改将会丢失。', '确认关闭', {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }).then(() => {
+        cancelCellEdit();
+        done()
+      }).catch(() => {
+        // 用户取消关闭
+      });
+    };
 
     const loadConnections = async () => {
       const saved = await window.electronAPI.getConnections();
@@ -1784,4 +2104,21 @@
 .sql-editor :deep(.monaco-editor) {
   min-height: 200px;
 }
+
+.field-type-info {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #909399;
+}
+
+.cell-container {
+  min-height: 24px;
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.cell-container:hover {
+  background-color: #f5f7fa;
+}
+
 </style> 

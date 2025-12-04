@@ -70,7 +70,7 @@
 
 <script>
 import { ref, onMounted, onUnmounted } from 'vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage,ElMessageBox } from 'element-plus';
 import Dashboard from './components/Dashboard.vue';
 import Connections from './components/Connections.vue';
 import QueryEditor from './components/QueryEditor.vue';
@@ -126,17 +126,45 @@ export default {
         const timestamp = Date.now();
         const randomId = Math.random().toString(36).substr(2, 5);
         tabName = `query_${timestamp}_${randomId}`;
-        // 计算已有查询编辑器的最大序号，生成查询编辑器(n) 格式的标题
-        const existing = editableTabs.value
-          .filter(t => t.title && t.title.startsWith('查询编辑器('))
-          .map(t => {
-            const m = t.title.match(/查询编辑器\((\d+)\)/);
-            return m ? parseInt(m[1], 10) : 0;
-          });
-        const maxIndex = existing.length ? Math.max(...existing) : 0;
-        newIndex = maxIndex + 1;
-        tabTitle = `查询编辑器(${newIndex})`;
+        tabTitle = `查询编辑器`;
         component = 'QueryEditor';
+
+        // 使用Element UI的弹窗让用户输入序号
+        ElMessageBox.prompt('请输入查询标签:', '创建查询编辑器', {
+          confirmButtonText: '确定',
+          cancelButtonText: '取消',
+          inputValue: '',
+          inputErrorMessage: '请输入查询标签'
+        }).then(({ value }) => {
+          tabTitle = `查询(${value})`;
+          component = 'QueryEditor';
+          if (value == '') {
+            tabTitle = '查询编辑器';
+          }
+          // 检查是否存在相同标题的标签页
+          const existingTab = editableTabs.value.find(tab => tab.title === tabTitle);
+          if (existingTab) {
+            // 如果标签页已存在，直接激活它
+            editableTabsValue.value = existingTab.name;
+            return;
+          } else {
+            // 否则创建新的标签页
+            editableTabs.value.push({
+              title: tabTitle,
+              name: tabName,
+              component: component,
+              props: {
+                tabId: value
+              }
+            });
+          }
+
+          
+        }).catch(() => {
+          // 用户取消操作
+        });
+        editableTabsValue.value = tabName;
+        return; // 异步处理，直接返回
       } else {
         // 查找或创建其他标签页
         let tab = editableTabs.value.find(tab => tab.name === index);

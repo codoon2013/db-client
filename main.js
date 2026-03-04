@@ -1184,3 +1184,18 @@ ipcMain.handle('saveSQLFile', async (event, filePath, content) => {
     throw new Error(`无法保存文件: ${error.message}`);
   }
 });
+
+// 读取私钥文件
+ipcMain.handle('read-private-key-file', async (event, filePath) => {
+  try {
+    // 去除路径中的空格
+    const cleanPath = filePath.trim();
+    console.log('[IPC] 读取私钥文件:', cleanPath);
+    
+    const content = fs.readFileSync(cleanPath, 'utf8');
+    return content;
+  } catch (error) {
+    console.error('[IPC] 读取私钥文件失败:', error);
+    throw new Error(`无法读取私钥文件：${error.message}`);
+  }
+});

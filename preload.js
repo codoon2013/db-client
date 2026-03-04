@@ -36,4 +36,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showSaveDialog: (options) => ipcRenderer.invoke('showSaveDialog', options),
   loadSQLFile: (filePath) => ipcRenderer.invoke('loadSQLFile', filePath),
   saveSQLFile: (filePath, content) => ipcRenderer.invoke('saveSQLFile', filePath, content),
+  readPrivateKeyFile: (filePath) => ipcRenderer.invoke('read-private-key-file', filePath),
 });

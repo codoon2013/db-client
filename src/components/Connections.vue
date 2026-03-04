@@ -102,9 +102,80 @@
           />
         </el-form-item>
 
-        <!-- <el-form-item label="SSL">
-          <el-switch v-model="connectionForm.ssl" />
-        </el-form-item> -->
+        <!-- 在密码字段后添加 SSH 配置 -->
+      <el-form-item label="SSH 代理">
+        <el-switch v-model="connectionForm.use_ssh" />
+      </el-form-item>
+
+      <template v-if="connectionForm.use_ssh">
+        <el-form-item label="SSH 主机" prop="ssh_host">
+          <el-input v-model="connectionForm.ssh_host" placeholder="SSH 服务器地址" />
+        </el-form-item>
+        
+        <el-form-item label="SSH 端口" prop="ssh_port">
+          <el-input-number v-model="connectionForm.ssh_port" :min="1" :max="65535" style="width: 100%" />
+        </el-form-item>
+        
+        <el-form-item label="SSH 用户名" prop="ssh_username">
+          <el-input v-model="connectionForm.ssh_username" placeholder="SSH 用户名" />
+        </el-form-item>
+        
+        <el-form-item label="认证方式" prop="ssh_auth_type">
+          <el-select v-model="connectionForm.ssh_auth_type" placeholder="选择认证方式" style="width: 100%">
+            <el-option label="密码认证" value="password" />
+            <el-option label="密钥认证" value="key" />
+          </el-select>
+        </el-form-item>
+      
+        <el-form-item 
+            v-if="connectionForm.ssh_auth_type === 'password'" 
+            label="SSH 密码" 
+            prop="ssh_password"
+          >
+            <el-input 
+              v-model="connectionForm.ssh_password" 
+              type="password" 
+              placeholder="SSH 密码"
+              show-password
+            />
+          </el-form-item>
+        
+        <template v-else-if="connectionForm.ssh_auth_type === 'key'">
+            <el-form-item label="私钥文件" prop="ssh_private_key_path">
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <el-input 
+                  v-model="connectionForm.ssh_private_key_path" 
+                  placeholder="请选择私钥文件路径"
+                  readonly
+                />
+                <el-button @click="selectPrivateKeyFile">
+                  <el-icon><Folder /></el-icon>
+                  选择文件
+                </el-button>
+              </div>
+            </el-form-item>
+            
+            <el-form-item label="私钥内容" prop="ssh_private_key_content">
+              <el-input 
+                v-model="connectionForm.ssh_private_key_content" 
+                type="textarea" 
+                :rows="6"
+                placeholder="或直接粘贴私钥内容 (-----BEGIN RSA PRIVATE KEY-----...)"
+              />
+            </el-form-item>
+            
+            <el-form-item label="私钥密码" prop="ssh_passphrase">
+              <el-input 
+                v-model="connectionForm.ssh_passphrase" 
+                type="password" 
+                placeholder="私钥密码 (如果有)"
+                show-password
+              />
+              <div class="form-item-tip">如果私钥有密码保护，请输入</div>
+            </el-form-item>
+          </template>
+        
+      </template>
       </el-form>
 
       <template #footer>
@@ -125,6 +196,7 @@
 <script>
 import { ref, reactive, onMounted } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
+import { Plus, Refresh, Folder } from '@element-plus/icons-vue';
 
 export default {
   name: 'Connections',
@@ -146,7 +218,16 @@ export default {
       database: '',
       username: '',
       password: '',
-      ssl: false
+      ssl: false,
+      use_ssh: false,
+      ssh_host: '',
+      ssh_port: 22,
+      ssh_username: '',
+      ssh_auth_type: 'password', // 'password' or 'key'
+      ssh_password: '',
+      ssh_private_key_path: '',
+      ssh_private_key_content: '',
+      ssh_passphrase: ''
     });
 
     const connectionRules = {
@@ -189,12 +270,32 @@ export default {
 
     const editConnection = (connection) => {
       isEditing.value = true;
-      Object.assign(connectionForm, connection);
+      Object.assign(connectionForm, {
+        id: connection.id,
+        name: connection.name,
+        type: connection.type,
+        host: connection.host,
+        port: connection.port,
+        database: connection.database,
+        username: connection.username,
+        password: connection.password,
+        ssl: connection.ssl === 1,
+        use_ssh: connection.use_ssh === 1,
+        ssh_host: connection.ssh_host || '',
+        ssh_port: connection.ssh_port || 22,
+        ssh_username: connection.ssh_username || '',
+        ssh_auth_type: connection.ssh_auth_type || 'password',
+        ssh_password: connection.ssh_password || '',
+        ssh_private_key_path: connection.ssh_private_key_path || '',
+        ssh_private_key_content: connection.ssh_private_key_content || '',
+        ssh_passphrase: connection.ssh_passphrase || ''
+      });
       connectionDialogVisible.value = true;
     };
 
     const resetForm = () => {
       Object.assign(connectionForm, {
+        id: null,
         id: null,
         name: '',
         type: 'mysql',
@@ -203,8 +304,48 @@ export default {
         database: '',
         username: '',
         password: '',
-        ssl: false
+        ssl: false,
+        use_ssh: false,
+        ssh_host: '',
+        ssh_port: 22,
+        ssh_username: '',
+        ssh_auth_type: 'password',
+        ssh_password: '',
+        ssh_private_key_path: '',
+        ssh_private_key_content: '',
+        ssh_passphrase: ''
       });
+    };
+
+    const selectPrivateKeyFile = async () => {
+      console.log('[UI] 点击选择私钥文件按钮');
+
+      try {
+        if (!window.electronAPI || !window.electronAPI.showOpenDialog) {
+          ElMessage.error('Electron API 未初始化');
+          return;
+        }
+        const result = await window.electronAPI.showOpenDialog({
+          properties: ['openFile'],
+          filters: [
+            { name: 'Private Key Files', extensions: ['pem', 'key', 'ppk', ''] }
+          ]
+        });
+        console.log('[UI] 文件选择结果:', result);
+
+        if (!result.canceled && result.filePaths.length > 0) {
+          const filePath = result.filePaths[0];
+          connectionForm.ssh_private_key_path = filePath;
+          
+          // 读取私钥文件内容
+          const fileContent = await window.electronAPI.readPrivateKeyFile(filePath);
+          connectionForm.ssh_private_key_content = fileContent;
+          
+          ElMessage.success('私钥文件已加载');
+        }
+      } catch (error) {
+        ElMessage.error('加载私钥文件失败：' + error.message);
+      }
     };
 
     const testConnection = async () => {
@@ -236,7 +377,11 @@ export default {
       try {
         await connectionFormRef.value.validate();
         saving.value = true;
+        // 深拷贝并转换布尔值为整数
         const plainForm = JSON.parse(JSON.stringify(connectionForm));
+        plainForm.ssl = plainForm.ssl ? 1 : 0;
+        plainForm.use_ssh = plainForm.use_ssh ? 1 : 0;
+        
         if (isEditing.value) {
           await window.electronAPI.upsertConnection(plainForm);
           connections.value = await window.electronAPI.getConnections();
@@ -316,9 +461,11 @@ export default {
     const refreshConnections = () => {
       ElMessage.success('连接列表已刷新');
     };
+    
 
     onMounted(async () => {
       const saved = await window.electronAPI.getConnections();
+      console.log(saved);
       connections.value = saved;
     });
 
@@ -338,6 +485,7 @@ export default {
       saveConnection,
       toggleConnection,
       deleteConnection,
+      selectPrivateKeyFile,
       refreshConnections
     };
   }
@@ -381,6 +529,13 @@ export default {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
+}
+
+
+.form-item-tip {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 4px;
 }
 
 /* 让 el-button-group 居中 */

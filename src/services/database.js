@@ -11,14 +11,14 @@ class DatabaseService {
   }
 
   // 建立 SSH 隧道
-  createSshTunnel(config) {
+  createSshTunnel (config) {
     return new Promise((resolve, reject) => {
       console.log('[SSH] === 开始建立 SSH 隧道 ===');
       console.log('[SSH] 目标服务器:', config.host + ':' + config.port);
       console.log('[SSH] SSH 服务器:', config.ssh_host + ':' + (config.ssh_port || 22));
       console.log('[SSH] 用户名:', config.ssh_username);
       console.log('[SSH] 认证方式:', config.ssh_auth_type);
-      
+
       const sshConfig = {
         host: config.ssh_host,
         port: config.ssh_port || 22,
@@ -67,11 +67,11 @@ class DatabaseService {
         console.log('[SSH] 使用密码认证');
       } else if (config.ssh_auth_type === 'key') {
         let privateKey = null;
-        
+
         if (config.ssh_private_key_content) {
           privateKey = config.ssh_private_key_content.trim();
           console.log('[SSH] 使用私钥内容认证，长度:', privateKey.length, '字节');
-          
+
           if (!privateKey.startsWith('-----BEGIN')) {
             console.error('[SSH] 私钥格式不正确');
             reject(new Error('私钥格式不正确，必须以 -----BEGIN 开头'));
@@ -89,15 +89,15 @@ class DatabaseService {
             return;
           }
         }
-        
+
         if (!privateKey) {
           console.error('[SSH] 未提供私钥');
           reject(new Error('未提供私钥'));
           return;
         }
-        
+
         sshConfig.privateKey = privateKey;
-        
+
         if (config.ssh_passphrase) {
           sshConfig.passphrase = config.ssh_passphrase;
           console.log('[SSH] 私钥有密码保护');
@@ -108,23 +108,23 @@ class DatabaseService {
 
       console.log('[SSH] 创建 SSH 客户端...');
       const sshClient = new SshClient();
-      
+
       let connectionAttempted = false;
       let connectionStartTime = Date.now();
-      
+
       sshClient.on('ready', () => {
         if (connectionAttempted) return;
         connectionAttempted = true;
-        
+
         const connectTime = Date.now() - connectionStartTime;
         console.log('[SSH] ✅ 连接成功！耗时:', connectTime + 'ms');
-        
+
         console.log('[SSH] 开始创建本地服务器进行端口转发...');
-        
+
         const net = require('net');
         const localServer = net.createServer((localSocket) => {
           console.log('[SSH] 本地客户端连接');
-          
+
           sshClient.forwardOut(
             localSocket.remoteAddress,
             localSocket.remotePort,
@@ -136,41 +136,41 @@ class DatabaseService {
                 localSocket.end();
                 return;
               }
-              
+
               localSocket.pipe(stream);
               stream.pipe(localSocket);
-              
+
               stream.on('close', () => {
                 localSocket.end();
               });
-              
+
               localSocket.on('close', () => {
                 stream.end();
               });
             }
           );
         });
-        
+
         localServer.on('error', (err) => {
           console.error('[SSH] 本地服务器错误:', err);
           sshClient.end();
           reject(new Error(`创建本地转发服务器失败：${err.message}`));
         });
-        
+
         localServer.on('listening', () => {
           const address = localServer.address();
           const assignedLocalPort = typeof address === 'object' && address !== null ? address.port : 0;
           console.log('[SSH] ✅ 本地转发服务器已启动，监听端口:', assignedLocalPort);
-          
+
           resolve({ localPort: assignedLocalPort, sshClient, localServer });
         });
-        
+
         localServer.on('close', () => {
           console.log('[SSH] 本地服务器关闭');
         });
-        
+
         localServer.listen(0, '127.0.0.1');
-        
+
       }).on('error', (err) => {
         if (!connectionAttempted) {
           connectionAttempted = true;
@@ -186,9 +186,9 @@ class DatabaseService {
       }).on('end', () => {
         console.log('[SSH] 连接结束');
       }).connect(sshConfig);
-      
+
       console.log('[SSH] 正在连接 SSH 服务器...');
-      
+
       setTimeout(() => {
         if (!connectionAttempted) {
           connectionAttempted = true;
@@ -218,7 +218,7 @@ class DatabaseService {
         sshClient = tunnel.sshClient;
         console.log('[SSH] SSH 隧道已建立，本地端口:', localPort);
       }
-      
+
       switch (type) {
         case 'mysql':
           return await this.testMySQLConnection(connectionConfig, sshClient, localPort);
@@ -257,7 +257,6 @@ class DatabaseService {
   // 测试 MySQL 连接
   async testMySQLConnection (config, sshClient = null, localPort = null) {
     const { host, port, database, username, password, use_ssh } = config;
-    console.log("11111",use_ssh,localPort)
     let connection;
     try {
       connection = await mysql.createConnection({
@@ -266,18 +265,18 @@ class DatabaseService {
         user: username,
         password: password,
         database: database,
-        ssl:  false,
+        ssl: false,
         connectTimeout: 10000
       });
       const [verRows] = await connection.execute('SELECT VERSION() as version');
       const [dbRows] = await connection.execute('SHOW DATABASES');
       await connection.end();
-      
+
       // 如果有 SSH 连接，关闭它
       if (sshClient) {
         sshClient.end();
       }
-      
+
       return {
         success: true,
         message: 'MySQL 连接测试成功',
@@ -313,12 +312,12 @@ class DatabaseService {
       const verResult = await client.query('SELECT version()');
       const dbResult = await client.query(`SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname`);
       await client.end();
-      
+
       // 如果有 SSH 连接，关闭它
       if (sshClient) {
         sshClient.end();
       }
-      
+
       return {
         success: true,
         message: 'PostgreSQL 连接测试成功',
@@ -337,7 +336,7 @@ class DatabaseService {
     }
   }
 
-// ... existing code ...
+  // ... existing code ...
 
   // 测试 SQL Server 连接
   async testSQLServerConnection (config, sshClient = null, localPort = null) {
@@ -360,12 +359,12 @@ class DatabaseService {
       const verResult = await pool.request().query('SELECT @@VERSION as version');
       const dbResult = await pool.request().query('SELECT name FROM sys.databases WHERE database_id > 4 ORDER BY name');
       await pool.close();
-      
+
       // 如果有 SSH 连接，关闭它
       if (sshClient) {
         sshClient.end();
       }
-      
+
       return {
         success: true,
         message: 'SQL Server 连接测试成功',
@@ -391,6 +390,25 @@ class DatabaseService {
       return result.rows[0].version;
     } catch (error) {
       return 'Unknown';
+    }
+  }
+
+  // 获取MySQL数据库列表
+  async getMySQLDatabases (connection) {
+    console.log('[DB] getMySQLDatabases start', {
+      connectionId: connection && connection.config ? connection.config.connectionId : undefined,
+      host: connection && connection.config ? connection.config.host : undefined,
+      port: connection && connection.config ? connection.config.port : undefined
+    });
+
+    try {
+      const [rows] = await connection.execute('SHOW DATABASES');
+      console.log('[DB] getMySQLDatabases result count', rows.length);
+      // mysql2 返回的行对象通常带有 Database 字段
+      return rows.map(row => row.Database || Object.values(row)[0]);
+    } catch (error) {
+      console.error('[DB] getMySQLDatabases failed', error);
+      return [];
     }
   }
 
@@ -435,57 +453,57 @@ class DatabaseService {
   // 建立持久连接
   async establishConnection (connectionConfig) {
     const connectionId = `${connectionConfig.id}`;
-    
+
     // if (this.connections.has(connectionId)) {
     //   return this.connections.get(connectionId);
     // }
 
     let connection;
     // 如果启用了 SSH 代理
-      if (connectionConfig.use_ssh) {
-        const tunnel = await this.createSshTunnel(connectionConfig);
-        
-        // 使用 SSH 隧道的本地端口连接数据库
-        switch (connectionConfig.type) {
-          case 'mysql':
-            connection = await mysql.createConnection({
-              host: '127.0.0.1',
-              port: tunnel.localPort,
-              user: connectionConfig.username,
-              password: connectionConfig.password,
-              database: connectionConfig.database
-            });
-            break;
-          case 'postgresql':
-            connection = new Client({
-              host: '127.0.0.1',
-              port: tunnel.localPort,
-              database: connectionConfig.database,
-              user: connectionConfig.username,
-              password: connectionConfig.password
-            });
-            await connection.connect();
-            break;
-          // ... 其他数据库类型
-        }
-        
-        // 保存 SSH 客户端引用以便后续关闭
-        connection._sshClient = tunnel.sshClient;
-      } else {
-        // 原有逻辑 (不使用 SSH)
-        switch (connectionConfig.type) {
-          case 'mysql':
-            connection = await mysql.createConnection({
-              host: connectionConfig.host,
-              port: connectionConfig.port,
-              user: connectionConfig.username,
-              password: connectionConfig.password,
-              database: connectionConfig.database
-            });
-            break;
-          // ... 其他数据库类型
-        }
+    if (connectionConfig.use_ssh) {
+      const tunnel = await this.createSshTunnel(connectionConfig);
+
+      // 使用 SSH 隧道的本地端口连接数据库
+      switch (connectionConfig.type) {
+        case 'mysql':
+          connection = await mysql.createConnection({
+            host: '127.0.0.1',
+            port: tunnel.localPort,
+            user: connectionConfig.username,
+            password: connectionConfig.password,
+            database: connectionConfig.database
+          });
+          break;
+        case 'postgresql':
+          connection = new Client({
+            host: '127.0.0.1',
+            port: tunnel.localPort,
+            database: connectionConfig.database,
+            user: connectionConfig.username,
+            password: connectionConfig.password
+          });
+          await connection.connect();
+          break;
+        // ... 其他数据库类型
       }
+
+      // 保存 SSH 客户端引用以便后续关闭
+      connection._sshClient = tunnel.sshClient;
+    } else {
+      // 原有逻辑 (不使用 SSH)
+      switch (connectionConfig.type) {
+        case 'mysql':
+          connection = await mysql.createConnection({
+            host: connectionConfig.host,
+            port: connectionConfig.port,
+            user: connectionConfig.username,
+            password: connectionConfig.password,
+            database: connectionConfig.database
+          });
+          break;
+        // ... 其他数据库类型
+      }
+    }
 
     this.connections.set(connectionId, connection);
     return connection;

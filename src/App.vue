@@ -41,6 +41,10 @@
               <el-icon><Grid /></el-icon>
               <span>数据表管理</span>
             </el-menu-item>
+            <el-menu-item index="query-tags">
+              <el-icon><Collection /></el-icon>
+              <span>查询标签管理</span>
+            </el-menu-item>
           </el-menu>
         </el-aside>
 
@@ -59,7 +63,11 @@
               :label="item.title"
               :name="item.name"
             >
-              <component :is="item.component"  v-bind="item.props || {}" />
+              <component
+                :is="item.component"
+                v-bind="item.props || {}"
+                @openQueryTag="handleOpenQueryTag"
+              />
             </el-tab-pane>
           </el-tabs>
         </el-main>
@@ -76,7 +84,8 @@ import Connections from './components/Connections.vue';
 import QueryEditor from './components/QueryEditor.vue';
 import Tables from './components/Tables.vue';
 import Settings from './components/Settings.vue';
-import { Monitor, Connection, Edit, Grid, Database, InfoFilled, Expand, Fold } from '@element-plus/icons-vue';
+import QueryTagsManager from './components/QueryTagsManager.vue';
+import { Monitor, Connection, Edit, Grid, Database, InfoFilled, Expand, Fold, Collection } from '@element-plus/icons-vue';
 
 export default {
   name: 'App',
@@ -86,6 +95,7 @@ export default {
     QueryEditor,
     Tables,
     Settings,
+    QueryTagsManager,
     // 注册图标组件
     Monitor,
     Connection,
@@ -94,7 +104,8 @@ export default {
     Database,
     InfoFilled,
     Expand,
-    Fold
+    Fold,
+    Collection
   },
   setup() {
     const activeMenu = ref('dashboard');
@@ -188,8 +199,12 @@ export default {
               tabTitle = '设置';
               component = 'Settings';
               break;
+            case 'query-tags':
+              tabTitle = '查询标签管理';
+              component = 'QueryTagsManager';
+              break;
           }
-          
+
           editableTabs.value.push({
             title: tabTitle,
             name: index,
@@ -197,10 +212,10 @@ export default {
           });
         }
       }
-      
+
       // 如果是查询编辑器，每次都创建新标签页
       if (index === 'query') {
-        
+
         editableTabs.value.push({
           title: tabTitle,
           name: tabName,
@@ -210,9 +225,45 @@ export default {
           }
         });
       }
-      
+
       // 设置当前激活的标签页
       editableTabsValue.value = tabName;
+    };
+
+    // 处理从标签管理打开查询标签
+    const handleOpenQueryTag = (tagName) => {
+      let value = tagName.replace("editor_","")
+      console.log("handleOpenQueryTag",tagName,value)
+      
+      const timestamp = Date.now();
+      const randomId = Math.random().toString(36).substr(2, 5);
+      let tabName = `query_${timestamp}_${randomId}`;
+
+      let tabTitle = `查询(${value})`;
+      let component = 'QueryEditor';
+      if (value == '') {
+        tabTitle = '查询编辑器';
+      }
+      // 检查是否存在相同标题的标签页
+      const existingTab = editableTabs.value.find(tab => tab.title === tabTitle);
+      if (existingTab) {
+        // 如果标签页已存在，直接激活它
+        editableTabsValue.value = existingTab.name;
+        return;
+      } else {
+        // 否则创建新的标签页
+        editableTabs.value.push({
+          title: tabTitle,
+          name: tabName,
+          component: component,
+          props: {
+            tabId: value
+          }
+        });
+      }
+
+      editableTabsValue.value = tabName;
+      activeMenu.value = 'query';
     };
 
     // 切换侧边栏显示/隐藏
@@ -315,6 +366,7 @@ export default {
       editableTabsValue,
       editableTabs,
       clickTab,
+      handleOpenQueryTag,
       removeTab
     };
   }
